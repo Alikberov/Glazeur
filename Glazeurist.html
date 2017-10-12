@@ -1,0 +1,697 @@
+<!doctype html>
+<html itemscope='' itemtype='http://schema.org/SearchResultsPage' lang='ru'		  >
+<head											  >
+<meta content='text/html; charset=windows-1251'		http-equiv='Content-Type'	 />
+<meta content='ru-RU'					http-equiv='Content-Language'	 />
+<meta content='keyboard,illumination,led,leds,effect,effects,fx,braile'	name='keywords'	 />
+<meta content='Static'							name='googlebot' />
+<meta content='NoIndex,NoArchive'					name='Robots'	 />
+<meta content='http://github.com/Alikberov'				name='Author'	 />
+<meta description='Glazeur-Scenarist'							 />
+<!--meta http-equiv=refresh content='300'>						<!--	-->
+<title>Glazeur-scripting</title>
+<style>
+pre#leds{
+	background-color:grey;
+}
+td.operator	{
+	border		:white thin outset;
+	cursor		:pointer;
+	font-size	:36px;
+}
+textarea{
+	font-size	:24px;
+}
+</style>
+<script>
+var	LEDs	= {
+		levels	: [0,0,0,0,0,0,0,0,0,0],
+		movie	: [],
+		order	: 0,
+		speed	: 100,
+		iDelay	: 100,
+		iKeyboard	: 0,
+		tmp	: {
+			iNumerator	:0,
+			iDenominator	:0
+			},
+		Measures: [],
+		iMeasure: -1,
+		Scenario: "",
+		ptr	: 0
+	};
+var	hTimer;
+var	iPrc = 1;
+////////////////////////////////////////////////////////////////////////////////
+var	GLY_TABULATION		= 0x0009,	// [->]	Tabulation key
+	GLY_TABULATIONS		= 0x2409,	// [HT]	Tabulation signature
+	GLY_TABULATIONG		= 0x21E5;	// ->|	Tabulation glyph
+////////////////////////////////////////////////////////////////////////////////
+var	GLY_MEASURE		= 0x00A7,	//	§	Measure
+	GLY_MEASURE_SET		= 0x20E3,	// [ ]	Set measure
+	GLY_FADE_IN		= 0x21E1,	// /|\	Fade in effect
+	GLY_FADE_OUT		= 0x21E3,	// \|/	Fade out effect
+	GLY_DEVICE_SET		= 0x2328,	// [:]	Keyboard select
+	GLY_STATE_LOAD		= 0x2397,	// [[]	Load state
+	GLY_STATE_SAVE		= 0x2398,	// []]	Save state
+	GLY_STATE_NULL		= 0x239A,	// [/]	Clear state
+	GLY_SHOW_DELAY		= 0x23F1,	// (^)	Show delay pause
+	GLY_SHOW_SPEED		= 0x23F2,	// (-)	Show speed
+	GLY_SHOW_CLOCK		= 0x267B,	// /_\	Show clock frequency
+	GLY_SHOW_ALERT		= 0x26A0,	// /!\	Alert
+	GLY_STATE_STOP		= 0x26D4,	// (=)	Stop/Halt
+	GLY_MEASURE_UP		= 0x2934,	// /\	Measure prev. line
+	GLY_MEASURE_DWN		= 0x2935,	// \/	Measure next line
+	GLY_MEASURE_RUN		= 0x219D;	// ->	Measure line run
+////////////////////////////////////////////////////////////////////////////////
+//	GLazeur_Check_for_Tab
+function GLYC_TAB(wc) { return (GLY_TABULATION == wc || GLY_TABULATIONG == wc || GLY_TABULATIONS == wc); }
+
+function	ShowLevel(bits) {
+	var	level = 0;
+	for(bits &= 001111111111; bits > 0; bits >>= 3)
+		level += bits & 1;
+	return 0x191919*0+0x061903 * level;
+}
+function	ShowLEDs(p) {
+	var	html = "", i;
+	for(i = 0; i < 27; ++ i) {
+		html += "<span style=color:#" + ("00000" + Number(ShowLevel(p.levels[i % 9 + 1] >> (i / 9 & 3))).toString(16)).substr(-6) + ">&nbsp;&#x25CF;&nbsp;</span>";
+		if(i == 8 || i == 17)
+			html += "<br />";
+	}
+	document.getElementById("leds").innerHTML = html;
+}
+
+function parse_fraction(p) {
+	var	iFractions = [
+		0x2152010A,	//	1/10 .1
+		0x21510109,	//	1/9	0.111
+		0x215B0108,	//	1/8	0.125
+		0x21500107,	//	1/7	0.143
+		0x21590106,	//	1/6	0.167
+		0x21550105,	//	1/5	0.2
+		0x00BC0104,	//	1/4	0.25
+		0x21530103,	//	1/3	0.333
+		0x215C0308,	//	3/8	0.375
+		0x21560205,	//	2/5	0.4
+		0x00BD0102,	//	1/2	0.5
+		0x21570305,	//	3/5	0.6
+		0x215D0508,	//	5/8	0.625
+		0x21540203,	//	2/3	0.667
+		0x00BE0304,	//	3/4	0.75
+		0x21580405,	//	4/5	0.8
+		0x215A0506,	//	5/6	0.833
+		0x215E0708,	//	7/8	0.875
+		0x21890003,	//	0/3
+	],	i;
+	if(p.cmd[p.ptr] > '0' && p.cmd[p.ptr] <= '9') {
+		p.tmp.iNumerator = 0;
+		while(p.cmd[p.ptr] >= '0' && p.cmd[p.ptr] <= '9')
+			p.tmp.iNumerator = p.tmp.iNumerator * 10 + +p.cmd[p.ptr ++];
+	} else
+	if(p.cmd[p.ptr] == '0') {
+		p.tmp.iNumerator = 0;
+		while(p.cmd[p.ptr] >= '0' && p.cmd[p.ptr] <= '7')
+			p.tmp.iNumerator = p.tmp.iNumerator * 8 + +p.cmd[p.ptr ++];
+	} else
+		p.tmp.iNumerator = -1;
+	p.tmp.iDenominator = -1;
+	do {
+		i = iFractions.length;
+		while(i --) {
+			n = iFractions[i];
+			if(n >> 16 == p.cmd.charCodeAt(p.ptr)) {
+				if(p.tmp.iNumerator < 0)
+					p.tmp.iNumerator = 1;
+				if(p.tmp.iDenominator < 1)
+					p.tmp.iDenominator = n & 255;
+				else
+					p.tmp.iDenominator *= n & 255;
+				p.tmp.iNumerator *= (n >> 8) & 255;
+				for(i = 2; p.tmp.iNumerator / i >= 1 && p.tmp.iDenominator / i >= 1; ++ i) {
+					if(p.tmp.iNumerator == Math.floor(p.tmp.iNumerator / i) * i && p.tmp.iDenominator == Math.floor(p.tmp.iDenominator / i) * i)
+						p.tmp.iNumerator /= i,
+						p.tmp.iDenominator /= i,
+						i = 1;
+				}
+				p.ptr ++;
+				break;
+			}
+		}
+	} while(i >= 0);
+	return p;
+}
+function play_effect(p, pp) {
+	var	mode = 0,
+		code,
+		index;
+	var	lo, hi;
+	//
+	switch(p.cmd.charCodeAt(p.ptr)) {
+	case GLY_FADE_IN:
+	case GLY_FADE_OUT:
+	case GLY_STATE_NULL:
+		mode = p.cmd.charCodeAt(p.ptr ++);
+	}
+	if(p.cmd.charCodeAt(p.ptr) >= 0x2800 && p.cmd.charCodeAt(p.ptr) <= 0x28FF) {
+		index = p.tmp.iNumerator;
+		if(index < 1 || index > 9)
+			index = p.tmp.iKeyboard;
+		if(index < 1 || index > 9)
+			return false;
+		while(p.cmd.charCodeAt(p.ptr) >= 0x2800 && p.cmd.charCodeAt(p.ptr) <= 0x28FF) {
+			code = p.cmd.charCodeAt(p.ptr ++) & 255;
+			switch((code >> 6) & 3) {
+			case 3:
+				pp.levels[index] = (pp.levels[index] & ((code >> 3) * 001111111111)) ^ (code & 7) * 001111111111;
+				index = index % 9 + 1;
+				break;
+			case 0:
+				if(mode == 0) {
+					lo = 001111111111 * (code & 7),
+					hi = 001111111111 * ((code >> 3) & 7);
+					pp.levels[index] = (pp.levels[index] & 030000000000) | lo;
+					index = index % 9 + 1;
+					pp.levels[index] = (pp.levels[index] & 030000000000) | hi;
+					index = index % 9 + 1;
+					continue;
+				} else
+				if(GLY_FADE_IN == mode) {
+					lo = 001111111111 * (code & 7),
+					hi = 001111111111 * ((code >> 3) & 7);
+					pp.levels[index] = (pp.levels[index] & ~lo) | ((pp.levels[index] << 3) & lo) | (pp.levels[index] & lo);
+					index = index % 9 + 1;
+					pp.levels[index] = (pp.levels[index] & ~hi) | ((pp.levels[index] << 3) & hi) | (pp.levels[index] & hi);
+					index = index % 9 + 1;
+					continue;
+				} else
+				if(GLY_FADE_OUT == mode) {
+					lo = 001111111110 * (code & 7),
+					hi = 001111111110 * ((code >> 3) & 7);
+					pp.levels[index] = (pp.levels[index] & ~lo) | ((pp.levels[index] & lo) >> 3);
+					index = index % 9 + 1;
+					pp.levels[index] = (pp.levels[index] & ~hi) | ((pp.levels[index] & hi) >> 3);
+					index = index % 9 + 1;
+					continue;
+				}
+				break;
+			}
+		}
+		return true;
+	}
+	if(GLY_DEVICE_SET == p.cmd.charCodeAt(p.ptr) && p.tmp.iDenominator < 0) {
+		if(p.tmp.iNumerator >= 1 && p.tmp.iNumerator <= 9)
+			p.tmp.iKeyboard = p.tmp.iNumerator;
+		else
+		if(p.tmp.iNumerator >= 1 && p.tmp.iNumerator >= 11)
+			pp.order = p.tmp.iNumerator;
+		else
+		if(p.tmp.iNumerator < 0 && mode == GLY_FADE_IN)
+			p.tmp.iKeyboard = p.tmp.iKeyboard % 9 + 1;
+		else
+		if(p.tmp.iNumerator < 0 && mode == GLY_FADE_OUT)
+			p.tmp.iKeyboard = (p.tmp.iKeyboard + 9) % 9 + 1;
+		p.ptr ++;
+		return true;
+	}
+	return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//	FUNCTION:	Get measure row
+//	PURPOSE:	Find the target row
+//	Example:
+//	|This is measure's commentary
+//	|	[1]		This is row #1
+//	|This is measure's commentary #2	
+//	|	[2]		This is row #2
+//	|This is measure's finish
+//	|
+////////////////////////////////////////////////////////////////////////////////
+function	parse_measure_rows(p, row) {
+	var	rows	= 0;
+	//
+	while(row > 0) {
+		while(0x000D != p.cmd.charCodeAt(p.ptr)) {
+			if(!p.cmd.charCodeAt(p.ptr))
+				return rows;
+			p.ptr ++;
+		}
+		if(0x000A == p.cmd.charCodeAt(++ p.ptr))
+			p.ptr ++;
+		++ rows;
+		if(GLYC_TAB(p.cmd.charCodeAt(p.ptr)))
+			p.ptr ++, -- row;
+		else
+		if(p.cmd.charCodeAt(p.ptr) < 32)
+			return rows;
+	};
+	return rows;
+}
+function	parse_measure(p, iMeasure, ptr = -1) {
+	var	pwc	= p.Measures[iMeasure];
+	var	preps	= [];
+	var	nreps	= [];
+	var	nlaps	= -1;
+	var	iRow;
+	var	nTabs	= 0;
+	//
+	var	iDelay		= 0;
+	//
+	if(ptr >= 0) {
+		pwc = p;
+		pwc.ptr ++;
+	} else {
+		pwc.ptr = 0;
+		iRow = parse_measure_rows(pwc, p.Measures[iMeasure].iRow);
+		while(GLYC_TAB(pwc.cmd.charCodeAt(pwc.ptr)))
+			++ pwc.ptr;
+	}
+	pwc.tmp.iKeyboard = p.iKeyboard;
+	while(pwc.cmd.charCodeAt(pwc.ptr) >= 32) {
+		while(pwc.cmd.charCodeAt(pwc.ptr) == 32)
+			++ pwc.ptr;
+		parse_fraction(pwc);
+		if((GLY_MEASURE == pwc.cmd.charCodeAt(pwc.ptr) || GLY_MEASURE_SET == pwc.cmd.charCodeAt(pwc.ptr)) && pwc.tmp.iNumerator >= 0 && pwc.tmp.iDenominator < 0) {
+			p.Measures[iMeasure].iRow = pwc.tmp.iNumerator;
+			++ pwc.ptr;
+			continue;
+		}
+		if(GLY_MEASURE_UP == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iDenominator < 0) {
+			if(pwc.tmp.iNumerator > 0)
+				p.Measures[iMeasure].iRow = p.Measures[iMeasure].iRow > pwc.tmp.iNumerator ? p.Measures[iMeasure].iRow - pwc.tmp.iNumerator : 1;
+			else
+			if(pwc.Measures[iMeasure].iRow > 1)
+				-- pwc.Measures[iMeasure].iRow;
+			++ pwc.ptr;
+			continue;
+		}
+		if(GLY_MEASURE_DWN == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iDenominator < 0) {
+			if(pwc.tmp.iNumerator > 0)
+				p.Measures[iMeasure].iRow += pwc.tmp.iNumerator;
+			else
+				++ p.Measures[iMeasure].iRow;
+			++ pwc.ptr;
+			continue;
+		}
+		if(GLY_SHOW_DELAY == pwc.cmd.charCodeAt(pwc.ptr)) {
+			if(pwc.tmp.iNumerator < 0 && pwc.tmp.iDenominator < 0) {
+				if(p.Measures[iMeasure].iDelayDiv > 0)
+					p.movie.push({
+						delay	:(p.iDelay * p.Measures[iMeasure].iDelayMul / p.Measures[iMeasure].iDelayDiv),
+						leds	:[].concat(p.levels)
+					});
+				else {
+					alert("ERROR: Measure #" + iMeasure + " Row " + iRow);
+				}
+			} else
+			if(pwc.tmp.iNumerator == 0 && pwc.tmp.iDenominator < 0)
+				p.Measures[iMeasure].iDelayMul = p.iDelay,
+				p.Measures[iMeasure].iDelayDiv = 1;
+			else {
+				if(pwc.tmp.iNumerator > 0)
+					p.Measures[iMeasure].iDelayMul = pwc.tmp.iNumerator,
+					p.Measures[iMeasure].iDelayDiv = 1;
+				if(pwc.tmp.iDenominator > 0)
+					p.Measures[iMeasure].iDelayDiv = pwc.tmp.iDenominator;
+			}
+			++ pwc.ptr;
+			continue;
+		}
+		if(')' == pwc.cmd.charAt(pwc.ptr)) {
+			if(ptr >= 0) {
+				p.ptr = ++ pwc.ptr;
+				return;
+			}
+			if(nlaps >= 0) {
+				if(nreps[nlaps] -- > 0) {
+					pwc.ptr = preps[nlaps];
+					continue;
+				}
+				-- nlaps;
+			}
+			++ pwc.ptr;
+			continue;
+		}
+		if('(' == pwc.cmd.charAt(pwc.ptr)) {
+			++ pwc.ptr;
+			if(pwc.tmp.iNumerator > 0 && pwc.tmp.iDenominator < 0) {
+				++ nlaps;
+				preps[nlaps] = pwc.ptr;
+				nreps[nlaps] = pwc.tmp.iNumerator;
+				continue;
+			}
+			break;
+		}
+		if(play_effect(pwc, p))
+			continue;
+		++ pwc.ptr;
+	};
+}
+
+function	animate() {
+	var	q = LEDs.movie.shift();
+	if(q) {
+		var	i, sPrg, iPrg, hPrg = document.getElementById("Progress");
+		LEDs.levels = q.leds;
+		console.log(q);
+		ShowLEDs(LEDs);
+		hTimer = setTimeout("animate()", q.delay);
+		iPrg = Math.floor((iPrc - LEDs.movie.length) * 100 / iPrc);
+		sPrg = "";
+		for(i = 0; i < iPrg; i += 2)
+			sPrg += "\u2593";
+		sPrg += i == iPrg ? "\u2593" : "\u2592";
+		while(i < 100)
+			sPrg += "\u2591",
+			i += 2;
+		hPrg.textContent = sPrg;
+	}
+}
+
+function	parse(p, cmd) {
+	var	preps	= [],
+		nreps	= [],
+		nlaps	= -1;
+	p.Scenario = "";
+	p.movie = [];
+	cmd = cmd.split(/\r?\n\r?\n/);
+	cmd.forEach(function(prg) {
+		prg = prg.split(/\r?\n/);
+		p.iMeasure = -1;
+		prg.forEach(function(str) {
+			if(str != "") {
+				str = str.split(/[\t\u2409\u21E5]+/);
+				if((str[0].charCodeAt(0) >= 48 && str[0].charCodeAt(0) <= 57 && str[0].charCodeAt(1) == GLY_MEASURE_SET)
+				|| (str[0].charCodeAt(1) >= 48 && str[0].charCodeAt(1) <= 57 && str[0].charCodeAt(0) == GLY_MEASURE)) {
+					p.iMeasure = str[0].charCodeAt(1) == GLY_MEASURE_SET ? str[0].charCodeAt(0) - 48 : str[0].charCodeAt(1) - 48;
+					p.Measures[p.iMeasure].cmd = str.join("\t").substr(2) + "\r\n";
+					p.Measures[p.iMeasure].iRow = 0;
+					p.Measures[p.iMeasure].ptr = 0;
+				} else
+				if(str[0] == "" && str[1] != "" && p.iMeasure >= 0)
+					p.Measures[p.iMeasure].cmd += "\t" + str.join("\t").substr(0) + "\r\n";
+				else
+				if(str[0] == "" && str[1] != "" && p.iMeasure < 0)
+					p.Scenario += str[1] + "\r\n";
+			}
+		});
+	});
+	p.iDelay = 1000,
+	p.iDelayMul = 1,
+	p.iDelayDiv = 1;
+	p.Scenario.split(/\r?\n/)
+	.forEach(function(str) {
+		p.cmd = str;
+		p.ptr = 0;
+		while(p.cmd.charCodeAt(p.ptr) >= 32) {
+			while(p.cmd.charCodeAt(p.ptr) == 32)
+				++ p.ptr;
+			parse_fraction(p);
+			p.iNumerator = p.tmp.iNumerator;
+			p.iDenominator = p.tmp.iDenominator;
+			if(GLY_MEASURE_SET == p.cmd.charCodeAt(p.ptr) && p.iNumerator >= 0 && p.iNumerator <= 9 && p.iDenominator < 0) {
+				p.iMeasure = p.iNumerator;
+				++ p.ptr;
+				continue;
+			}
+			if(GLY_MEASURE == p.cmd.charCodeAt(p.ptr)) {
+				++ p.ptr;
+				if(p.cmd.charCodeAt(p.ptr) >= 0x30 && p.cmd.charCodeAt(p.ptr) <= 0x39)
+					p.iMeasure = p.cmd.charCodeAt(p.ptr ++) - 0x30;
+				else
+				if(p.iMeasure >= 0 && p.iNumerator < 0 && '(' == p.cmd.charAt(p.ptr)) {
+					parse_measure(p, p.iMeasure, 1);
+					continue;
+				}
+				if(p.iMeasure >= 0 && p.iNumerator >= 0 && p.iDenominator < 0)
+					p.Measures[p.iMeasure].iRow = p.iNumerator;
+				continue;
+			}
+			if(GLY_MEASURE_UP == p.cmd.charCodeAt(p.ptr) && p.iDenominator < 0 && p.iMeasure >= 0) {
+				if(p.iNumerator > 0)
+					p.Measures[p.iMeasure].iRow = p.Measures[p.iMeasure].iRow > p.iNumerator ? p.Measures[p.iMeasure].iRow - p.iNumerator : 1;
+				else
+				if(p.Measures[iMeasure].iRow > 1)
+					-- p.Measures[iMeasure].iRow;
+				++ p.ptr;
+				continue;
+			}
+			if(GLY_MEASURE_DWN == p.cmd.charCodeAt(p.ptr) && p.iDenominator < 0 && p.iMeasure >= 0) {
+				if(p.iNumerator > 0)
+					p.Measures[p.iMeasure].iRow += p.iNumerator;
+				else
+					++ p.Measures[p.iMeasure].iRow;
+				++ p.ptr;
+				continue;
+			}
+			if(GLY_MEASURE_RUN == p.cmd.charCodeAt(p.ptr) && p.iDenominator < 0 && p.iMeasure >= 0) {
+				parse_measure(p, p.iMeasure);
+				++ p.ptr;
+				continue;
+			}
+			if(GLY_SHOW_CLOCK == p.cmd.charCodeAt(p.ptr) && p.iNumerator > 0 && p.iDenominator < 0) {
+				p.speed = p.iNumerator;
+				++ p.ptr;
+				continue;
+			}
+			if(GLY_SHOW_DELAY == p.cmd.charCodeAt(p.ptr)) {
+				if(p.iNumerator < 0 && p.iDenominator < 0)
+					p.movie.push({
+						delay	:(p.iDelay * p.iDelayMul / p.iDelayDiv),
+						leds	:[].concat(p.levels)
+					});
+				else {
+					if(p.iNumerator > 0 && p.iDenominator > 0)
+						p.iDelayMul = p.iNumerator,
+						p.iDelayDiv = p.iDenominator;
+					else
+					if(p.iNumerator > 0)
+						p.iDelay = p.iNumerator,
+						p.iDelayMul = 1,
+						p.iDelayDiv = 1;
+				}
+				++ p.ptr;
+				continue;
+			}
+			if('(' == p.cmd.charAt(p.ptr)) {
+				++ p.ptr;
+				if(p.iNumerator > 0 && p.iDenominator < 0) {
+					++ nlaps;
+					preps[nlaps] = p.ptr;
+					nreps[nlaps] = p.iNumerator;
+					continue;
+				}
+				break;
+			}
+			if(')' == p.cmd.charAt(p.ptr)) {
+				if(nlaps >= 0) {
+					if(nreps[nlaps] -- > 0) {
+						p.ptr = preps[nlaps];
+						continue;
+					}
+					-- nlaps;
+				}
+				++ p.ptr;
+				continue;
+			}
+			p.tmp.iKeyboard = p.iKeyboard;
+			if(play_effect(p, p)) {
+				p.iKeyboard = p.tmp.iKeyboard;
+			} else
+				++ p.ptr;
+		}
+	});
+	clearTimeout(hTimer);
+	iPrc = p.movie.length;
+	document.getElementById("Progress").textContent = "";
+	animate();
+}
+
+function main() {
+	var	operators = [
+		"0x003720E3:Paragraph #7",
+		"0x003420E3:Paragraph #4",
+		"0x003120E3:Paragraph #1",
+		"0x003020E3:Paragraph #0",
+		"0x00A70037:Paragraph #7",
+		"0x00A70034:Paragraph #4",
+		"0x00A70031:Paragraph #1",
+		"0x00A70030:Paragraph #0",
+		"0x003820E3:Paragraph #8",
+		"0x003520E3:Paragraph #5",
+		"0x003220E3:Paragraph #2",
+		"0x00002328:Keyboard",
+		"0x00A70038:Paragraph #8",
+		"0x00A70035:Paragraph #5",
+		"0x00A70032:Paragraph #2",
+		"0x000000A7:Paragraph",
+		"0x003920E3:Paragraph #9",
+		"0x003620E3:Paragraph #6",
+		"0x003320E3:Paragraph #3",
+		"0x24090009:Tabulation",
+		"0x00A70039:Paragraph #9",
+		"0x00A70036:Paragraph #6",
+		"0x00A70033:Paragraph #3",
+		"0x21E50009:Tabulation",
+		"0x00000037:Number 7",
+		"0x00000034:Number 4",
+		"0x00000031:Number 1",
+		"0x00000030:Number 0",
+		"0x00000027:Apostrophe",
+		"0x00000024:Dollar",
+		"0x00000021:Exclamation",
+		"0x00000020:Space",
+		"0x00000038:Number 8",
+		"0x00000035:Number 5",
+		"0x00000032:Number 2",
+		"0x0000002E:Point",
+		"0x00000028:Bracket",
+		"0x00000025:Percent",
+		"0x00000022:Quote",
+		"0x0000002C:Comma",
+		"0x00000039:Number 9",
+		"0x00000036:Number 6",
+		"0x00000033:Number 3",
+		"0x23CE000D:Enter",
+		"0x00000029:Bracket",
+		"0x00000026:Ampersand",
+		"0x00000023:Sharp",
+		"0x00000020:Space",
+		"0x000021E1:Fade in",
+		"0x0000239A:Clear",
+		"0x000021E3:Fade out",
+		"0x000023F1:Delaying",
+		"0x00002935:Next line in paragraph",
+		"0x0000219D:Replay line of paragraph",
+		"0x00002934:Previous line of paragraph",
+		"0x000023F2:Timing",
+		"0x00002679:Special FX #7",
+		"0x00002676:Special FX #4",
+		"0x00002673:Special FX #1",
+		"0x00002672:Special FX #0",
+		"0x00002637:Trigram FX #7 - Earth",
+		"0x00002634:Trigram FX #4 - Wind",
+		"0x00002631:Trigram FX #1 - Lake",
+		"0x00002630:Trigram FX #0 - Heaven",
+		"0x0000267A:Special FX",
+		"0x00002677:Special FX #5",
+		"0x00002674:Special FX #2",
+		"0x0000267B:Refreshing",
+		"0x00002397:Push history",
+		"0x00002635:Trigram FX #5 - Water",
+		"0x00002632:Trigram FX #2 - Fire",
+		"0x00002316:Log status",
+		"0x0000267D:Special FX",
+		"0x00002678:Special FX #6",
+		"0x00002675:Special FX #3",
+		"0x0000267A:Special FX",
+		"0x00002398:Pop history",
+		"0x00002636:Trigram FX #6 - Mountain",
+		"0x00002633:Trigram FX #3 - Thunder",
+		"0x00002399:Show status",
+		"0x00002077:^7",
+		"0x00002074:^4",
+		"0x000000B9:^1",
+		"0x00002070:^0",
+		"0x00002087:_7",
+		"0x00002084:_4",
+		"0x00002081:_1",
+		"0x00002080:_0",
+		"0x00002078:^8",
+		"0x00002075:^5",
+		"0x000000B2:^2",
+		"0x00000020:?",
+		"0x00002088:_8",
+		"0x00002085:_5",
+		"0x00002082:_2",
+		"0x00000020:?",
+		"0x00002079:^9",
+		"0x00002076:^6",
+		"0x000000B3:^3",
+		"0x00000020:?",
+		"0x00002089:_9",
+		"0x00002086:_6",
+		"0x00002083:_3",
+		"0x00000020:?",
+		"0x0000215E:7/8",
+		"0x000000BE:3/4",
+		"0x00002156:2/5",
+		"0x00000020:?",
+		"0x00002150:1/7",
+		"0x000000BC:1/4",
+		"0x00000020:?",
+		"0x00002152:1/10",
+		"0x0000215D:5/8",
+		"0x00002158:4/5",
+		"0x00002154:2/3",
+		"0x00000020:?",
+		"0x0000215B:1/8",
+		"0x00002155:1/5",
+		"0x000000BD:1/2",
+		"0x00000020:?",
+		"0x00002157:3/5",
+		"0x0000215A:5/6",
+		"0x0000215C:3/8",
+		"0x00000020:?",
+		"0x00002151:1/9",
+		"0x00002159:1/6",
+		"0x00002153:1/3",
+		];
+	var	hTab = document.getElementById("Operators");
+	var	hRow, hCell;
+	var	x, y, i, n, tmp;
+	for(y = 0; y < 8; ++ y) {
+		hRow = hTab.insertRow(y);
+		n = ((7 - y + operators.length) >> 3) + 8;
+		for(x = 0; x < n; ++ x) {
+			hCell = hRow.insertCell(x);
+			hCell.className = "operator";
+			hCell.width = "32px";
+			if(x < 8)
+				tmp = [0x2800 + y * 8 + x, "Paste LEDs state to scenario"];
+			else
+				tmp = operators[(x - 8) * 8 + y].split(":");
+			hCell.title = tmp[1];
+			tmp = parseInt(tmp[0]);
+			if(tmp < 65535)
+				hCell.innerHTML = "&#" + tmp + ";";
+			else
+				hCell.innerHTML = "&#" + (tmp >> 16) + ";&#" + (tmp & 65535) + ";";
+			hCell.addEventListener("click",
+				function(e) {
+					if(e.target && e.target.nodeName == "TD") {
+						document.getElementById("Scenario").value += e.target.textContent.replace(/\u23CE\r/g, "\r\n");
+						document.getElementById("Scenario").focus();
+					}
+				}
+			);
+		}
+	}
+	for(i = 0; i < 10; ++ i) {
+		LEDs.Measures[i] = {
+			cmd		:"",
+			ptr		:0,
+			iRow		:0,
+			iDelayMul	:1,
+			iDelayDiv	:1,
+			tmp	:{
+				iNumerator	:-1,
+				iDenominator	:-1
+			}
+		};
+	}
+	ShowLEDs(LEDs);
+	tmp = window.location.href.split("?");
+	if(tmp.length > 1)
+		document.getElementById("Scenario").value = unescape(tmp[1]);
+}
+</script>
+</head>
+<body onload='main()'>
+<table><tr valign=top><td><textarea id='Scenario' rows=25 cols=64></textarea></td><td><pre id=leds></pre><table id='Operators'></table></td></tr></table>
+<button onclick='document.getElementById("Progress").href="?"+escape(document.getElementById("Scenario").value); parse(LEDs, document.getElementById("Scenario").value)'>Compile Glazeur-scenario</button>
+<a href='' id=Progress>Progress - 0%</a>
+<p style=text-align:center><a href='http://github.com/Alikberov'>Visit me now</a><br />&copy;2017 Alikberov</p>
+</body>
