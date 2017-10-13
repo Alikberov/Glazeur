@@ -41,6 +41,7 @@ var	LEDs	= {
 		ptr	: 0,
 		iRow	: 0
 	};
+var	url;
 var	hTimer;
 var	iPrc = 1;
 ////////////////////////////////////////////////////////////////////////////////
@@ -730,9 +731,9 @@ function main() {
 		};
 	}
 	ShowLEDs(LEDs);
-	tmp = window.location.href.split("?");
-	if(tmp.length > 1) {
-		tmp.pop().split("&")
+	url = window.location.href.split("?");
+	if(url.length > 1) {
+		url.pop().split("&")
 		.forEach(function(str) {
 			str = str.split("=");
 			switch(str[0]) {
@@ -742,13 +743,15 @@ function main() {
 			}
 			return true;
 		});
-	}
+		url = url.join("?");
+	} else
+		url = window.location.href;
 }
 </script>
 </head>
 <body onload='main()'>
 <table><tr valign=top><td><textarea id='Scenario' rows=25 cols=64></textarea></td><td><pre id=leds></pre><table id='Operators'></table></td></tr></table>
-<button onclick='document.getElementById("Progress").href="?"+escape(document.getElementById("Scenario").value).replace(/%u/g, "%25u"); parse(LEDs, document.getElementById("Scenario").value)'>Compile Glazeur-scenario</button>
+<button onclick='document.getElementById("Progress").href=url+"?script="+escape(document.getElementById("Scenario").value).replace(/%u/g, "%25u"); parse(LEDs, document.getElementById("Scenario").value)'>Compile Glazeur-scenario</button>
 <a href='' id=Progress>Progress - 0%</a>
 <p style=text-align:center><a href='http://github.com/Alikberov'>Visit me now</a><br />&copy;2017 Alikberov</p>
 </body>
