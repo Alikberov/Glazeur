@@ -35,13 +35,16 @@ var	LEDs	= {
 		iKeyboard	: 0,
 		tmp	: {
 			iNumerator	:0,
-			iDenominator	:0
+			iDenominator	:0,
+			pReps		:[],
+			nReps		:[]
 			},
 		Measures: [],
 		iMeasure: -1,
 		Scenario: "",
 		ptr	: 0,
 		iRow	: 0,
+		remark	: "",
 		log	: {
 			text: ""
 		}
@@ -102,7 +105,7 @@ function	ShowLEDs(p, q) {
 			html += "<span style=color:yellow>Progress: " + ("  " + Math.floor(iDuration * 100 / iEstimated)).substr(-3) + "% [" + ds + "]</span><br />";
 			break;
 		case 17:
-			html += "<span style=color:yellow>Scenario row #" + (q.row >= 0 ? q.row : "---") + "</span><br />";
+			html += "<span style=color:yellow>Scenario: row #" + (q.row >= 0 ? q.row + "  " : "---").substr(0, 3) + "</span><br />";
 			break;
 		case 26:
 			html += "<span style=color:yellow>Measure #" + (q.measure.index >= 0 ? q.measure.index + " / Row #" + q.measure.row : "---") + " // " + q.text + "</span>";
@@ -132,7 +135,7 @@ function parse_fraction(p) {
 		0x21580405,	//	4/5	0.8
 		0x215A0506,	//	5/6	0.833
 		0x215E0708,	//	7/8	0.875
-		0x21890003,	//	0/3
+		0x21890003	//	0/3
 	],	i;
 	if(p.cmd[p.ptr] > '0' && p.cmd[p.ptr] <= '9') {
 		p.tmp.iNumerator = 0;
@@ -237,7 +240,7 @@ function play_effect(p, pp) {
 			p.tmp.iKeyboard = p.tmp.iKeyboard % 9 + 1;
 		else
 		if(p.tmp.iNumerator < 0 && mode == GLY_FADE_OUT)
-			p.tmp.iKeyboard = (p.tmp.iKeyboard + 9) % 9 + 1;
+			p.tmp.iKeyboard = (p.tmp.iKeyboard + 7) % 9 + 1;
 		p.ptr ++;
 		return true;
 	}
@@ -272,6 +275,8 @@ function	parse_measure_rows(p, row) {
 		else
 		if(p.cmd.charCodeAt(p.ptr) < 32)
 			return rows;
+		else
+			p.remark = p.cmd.substr(p.ptr).split(/\r|\n/)[0];
 	};
 	return rows;
 }
@@ -286,6 +291,7 @@ function	parse_measure(p, iMeasure, ptr) {
 	//
 	var	iDelay		= 0;
 	//
+	pwc.remark = "";
 	if(ptr >= 0) {
 		pwc = p;
 		pwc.ptr ++;
@@ -329,29 +335,23 @@ function	parse_measure(p, iMeasure, ptr) {
 			continue;
 		}
 		if(GLY_STATE_PRINT == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iNumerator < 0 && pwc.tmp.iDenominator < 0) {
-			i = ++ pwc.ptr;
-/*			tmp = false;
-			while(i < pwc.cmd.length) {
-				if(GLYC_TAB(pwc.cmd.charCodeAt(i)) && tmp) {
-					while(GLYC_TAB(pwc.cmd.charCodeAt(++ i)));
-					break;	// // // // // // Experimental - not finished
-					continue;
-				}
-				tmp = (pwc.cmd.charAt(i) == '\r');
-				if(tmp)
-					++ i;
-				if(pwc.cmd.charAt(i) == '\n')
-					tmp = true,
-					++ i;
-			}
-			p.log.text = pwc.cmd.substr(i).split(/\r?\n\t/)[1].replace(/^[\t\u2409\u21E5\r\n]+/, "").replace(/[\u2080-\u2089]/g,
+			++ pwc.ptr;
+			p.log.text = pwc.remark.replace(/[\u2080-\u2089]/g,
 				function(str) {
 					var	index = str.charCodeAt(0) - 0x2080;
 					if(index > 0)
 						return nlaps >= index - 1 ? nreps[nlaps - index + 1] : "?";
 					return "" + iRow;
 				}
-			).replace(/\xA7/g, "" + iMeasure);*/
+			).replace(/\xA7/g, "" + p.iMeasure).replace(/[\u2070\xB9\xB2\xB3\u2074-\u2079]/g,
+				function(str) {
+					var	index = str.charCodeAt(0);
+					index = index == 0xB9 ? 1 : index & 15;
+					if(index > 0)
+						return p.tmp.nReps.length >= index ? p.tmp.nReps[p.tmp.nReps.length - index] : "?";
+					return "" + p.iRow;
+				}
+			);
 			continue;
 		}
 		if(GLY_SHOW_DELAY == pwc.cmd.charCodeAt(pwc.ptr)) {
@@ -387,7 +387,7 @@ function	parse_measure(p, iMeasure, ptr) {
 				return;
 			}
 			if(nlaps >= 0) {
-				if(nreps[nlaps] -- > 0) {
+				if(nreps[nlaps] -- > 1) {
 					pwc.ptr = preps[nlaps];
 					continue;
 				}
@@ -439,10 +439,7 @@ function	animate() {
 }
 
 function	parse(p, cmd) {
-	var	preps	= [],
-		nreps	= [],
-		nlaps	= -1,
-		tmp;
+	var	tmp;
 	p.Scenario = [];
 	p.movie = [];
 	cmd = cmd.split(/\r?\n/);
@@ -458,6 +455,14 @@ function	parse(p, cmd) {
 				p.Measures[p.iMeasure].ptr = 0;
 				return;
 			}
+			if(str[0] != "" && p.iMeasure >= 0) {
+				if(p.Measures[p.iMeasure].cmd == "")
+					tmp = "";
+				else
+					tmp = "\r\n";
+				p.Measures[p.iMeasure].cmd += tmp + str.join("\t").substr(0);
+				return;
+			}
 			if(str[1] != "" && p.iMeasure >= 0) {
 				if(p.Measures[p.iMeasure].cmd == "")
 					tmp = "";
@@ -467,11 +472,11 @@ function	parse(p, cmd) {
 				return;
 			}
 			if(str[0] == "" && str[1] != "" && p.iMeasure < 0) {
-				p.Scenario.push(str.join("\t").substr(1));
+				p.Scenario.push(str.join("\t"));
 				return;
 			}
 			if(str[0] != "" && p.iMeasure < 0) {
-				p.Scenario[p.Scenario.length - 1] += "\t" + str.join("\t");
+				p.Scenario.push(str.join("\t"));
 				return;
 			}
 		}
@@ -481,12 +486,21 @@ function	parse(p, cmd) {
 	p.iDelayMul = 1,
 	p.iDelayDiv = 1;
 	p.iRow = 0;
+	p.remark = "";
 	p.Scenario//.split(/\r?\n/)
 	.forEach(function(str) {
 		p.cmd = str;
 		p.ptr = 0;
 		p.iRow ++;
 		p.log.text = "";
+		p.tmp.pReps = [];
+		p.tmp.nReps = [];
+		if(!GLYC_TAB(p.cmd.charCodeAt(p.ptr ++))) {
+			p.remark = str;
+			return;
+		}
+		while(GLYC_TAB(p.cmd.charCodeAt(p.ptr)))
+			++ p.ptr;
 		while(p.cmd.charCodeAt(p.ptr) >= 32) {
 			while(p.cmd.charCodeAt(p.ptr) == 32)
 				++ p.ptr;
@@ -544,14 +558,12 @@ function	parse(p, cmd) {
 				continue;
 			}
 			if(GLY_STATE_PRINT == p.cmd.charCodeAt(p.ptr) && p.tmp.iNumerator < 0 && p.tmp.iDenominator < 0) {
-				i = ++ p.ptr;
-				while(i < p.cmd.length && !GLYC_TAB(p.cmd.charCodeAt(i)))
-					++ i;
-				p.log.text = p.cmd.substr(i + 1).replace(/[\u2080-\u2089]/g,
+				++ p.ptr;
+				p.log.text = p.remark.replace(/[\u2080-\u2089]/g,
 					function(str) {
 						var	index = str.charCodeAt(0) - 0x2080;
 						if(index > 0)
-							return nlaps >= index - 1 ? nreps[nlaps - index + 1] : "?";
+							return p.tmp.nReps.length >= index ? p.tmp.nReps[p.tmp.nReps.length - index] : "?";
 						return "" + p.iRow;
 					}
 				).replace(/\xA7/g, (p.iMeasure < 0 ? "\xA7" : "" + p.iMeasure));
@@ -582,20 +594,20 @@ function	parse(p, cmd) {
 			if('(' == p.cmd.charAt(p.ptr)) {
 				++ p.ptr;
 				if(p.iNumerator > 0 && p.iDenominator < 0) {
-					++ nlaps;
-					preps[nlaps] = p.ptr;
-					nreps[nlaps] = p.iNumerator;
+					p.tmp.pReps.push(p.ptr);
+					p.tmp.nReps.push(p.iNumerator);
 					continue;
 				}
 				break;
 			}
 			if(')' == p.cmd.charAt(p.ptr)) {
-				if(nlaps >= 0) {
-					if(nreps[nlaps] -- > 0) {
-						p.ptr = preps[nlaps];
+				if(p.tmp.nReps.length > 0) {
+					if(p.tmp.nReps[p.tmp.nReps.length - 1] -- > 1) {
+						p.ptr = p.tmp.pReps[p.tmp.pReps.length - 1];
 						continue;
 					}
-					-- nlaps;
+					p.tmp.nReps.pop();
+					p.tmp.pReps.pop();
 				}
 				++ p.ptr;
 				continue;
@@ -757,7 +769,7 @@ function main() {
 		"0x00000020:?",
 		"0x00002636:Trigram FX #6 - Mountain		---",
 		"0x00002633:Trigram FX #3 - Thunder		---",
-		"0x23CE000D:Enter",
+		"0x23CE000D:Enter"
 		];
 	var	hTab = document.getElementById("Operators");
 	var	hRow, hCell;
