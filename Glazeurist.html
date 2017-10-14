@@ -17,9 +17,11 @@ pre#leds{
 td.operator	{
 	border		:white thin outset;
 	cursor		:pointer;
-	font-size	:36px;
+	font-family	:"Segoe UI Symbol";
+	font-size	:28px;
 }
 textarea{
+	font-family	:"Segoe UI Symbol";
 	font-size	:24px;
 }
 </style>
@@ -39,11 +41,15 @@ var	LEDs	= {
 		iMeasure: -1,
 		Scenario: "",
 		ptr	: 0,
-		iRow	: 0
+		iRow	: 0,
+		log	: {
+			text: ""
+		}
 	};
 var	url;
 var	hTimer;
-var	iPrc = 1;
+var	iEstimated	= 1,
+	iDuration	= 1;
 ////////////////////////////////////////////////////////////////////////////////
 var	GLY_TABULATION		= 0x0009,	// [->]	Tabulation key
 	GLY_TABULATIONS		= 0x2409,	// [HT]	Tabulation signature
@@ -65,6 +71,9 @@ var	GLY_MEASURE		= 0x00A7,	//	§	Measure
 	GLY_MEASURE_UP		= 0x2934,	// /\	Measure prev. line
 	GLY_MEASURE_DWN		= 0x2935,	// \/	Measure next line
 	GLY_MEASURE_RUN		= 0x219D;	// ->	Measure line run
+	//
+	GLY_STATE_LOG		= 0x2316;	// -*-	Logging the status
+	GLY_STATE_PRINT		= 0x2399;	// [~]	Print the status
 ////////////////////////////////////////////////////////////////////////////////
 //	GLazeur_Check_for_Tab
 function GLYC_TAB(wc) { return (GLY_TABULATION == wc || GLY_TABULATIONG == wc || GLY_TABULATIONS == wc); }
@@ -76,24 +85,27 @@ function	ShowLevel(bits) {
 	return 0x191919*0+0x061903 * level;
 }
 function	ShowLEDs(p, q) {
-	var	html = "", i;
+	var	html = "", i, ds;
 	if(!q)
 		q = {
 			measure: {index: -1, row: -1},
 			row: -1,
-			leds: p.levels
+			leds: p.levels,
+			text: ""
 		};
 	for(i = 0; i < 27; ++ i) {
 		html += "<span style=color:#" + ("00000" + Number(ShowLevel(q.leds[i % 9 + 1] >> (i / 9 & 3))).toString(16)).substr(-6) + ">&nbsp;&#x25CF;&nbsp;</span>";
 		switch(i) {
 		case 8:
-			html += "<span style=color:yellow>Progress: " + Math.floor((iPrc - p.movie.length) * 100 / iPrc) + "%</span><br />";
+			ds = (Math.floor(iDuration / 3600000) % 24) + ":" + ("0" + (Math.floor(iDuration / 60000) % 60)).substr(-2) + ":" + ("0" + (Math.floor(iDuration / 1000) % 60)).substr(-2);
+			ds += "/" + (Math.floor(iEstimated / 3600000) % 24) + ":" + ("0" + (Math.floor(iEstimated / 60000) % 60)).substr(-2) + ":" + ("0" + (Math.floor(iEstimated / 1000) % 60)).substr(-2);
+			html += "<span style=color:yellow>Progress: " + ("  " + Math.floor(iDuration * 100 / iEstimated)).substr(-3) + "% [" + ds + "]</span><br />";
 			break;
 		case 17:
 			html += "<span style=color:yellow>Scenario row #" + (q.row >= 0 ? q.row : "---") + "</span><br />";
 			break;
 		case 26:
-			html += "<span style=color:yellow>Measure #" + (q.measure.index >= 0 ? q.measure.index + " / Row #" + q.measure.row : "---") + "</span>";
+			html += "<span style=color:yellow>Measure #" + (q.measure.index >= 0 ? q.measure.index + " / Row #" + q.measure.row : "---") + " // " + q.text + "</span>";
 			break;
 		}
 	}
@@ -263,19 +275,21 @@ function	parse_measure_rows(p, row) {
 	};
 	return rows;
 }
-function	parse_measure(p, iMeasure, ptr = -1) {
+function	parse_measure(p, iMeasure, ptr) {
 	var	pwc	= p.Measures[iMeasure];
 	var	preps	= [];
 	var	nreps	= [];
 	var	nlaps	= -1;
 	var	iRow;
 	var	nTabs	= 0;
+	var	i, tmp;
 	//
 	var	iDelay		= 0;
 	//
 	if(ptr >= 0) {
 		pwc = p;
 		pwc.ptr ++;
+		iRow = p.Measures[iMeasure].iRow;
 	} else {
 		pwc.ptr = 0;
 		iRow = parse_measure_rows(pwc, p.Measures[iMeasure].iRow);
@@ -309,16 +323,48 @@ function	parse_measure(p, iMeasure, ptr = -1) {
 			++ pwc.ptr;
 			continue;
 		}
+		if(GLY_STATE_NULL == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iNumerator < 0 && pwc.tmp.iDenominator < 0) {
+			p.log.text = "";
+			pwc.ptr ++;
+			continue;
+		}
+		if(GLY_STATE_PRINT == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iNumerator < 0 && pwc.tmp.iDenominator < 0) {
+			i = ++ pwc.ptr;
+/*			tmp = false;
+			while(i < pwc.cmd.length) {
+				if(GLYC_TAB(pwc.cmd.charCodeAt(i)) && tmp) {
+					while(GLYC_TAB(pwc.cmd.charCodeAt(++ i)));
+					break;	// // // // // // Experimental - not finished
+					continue;
+				}
+				tmp = (pwc.cmd.charAt(i) == '\r');
+				if(tmp)
+					++ i;
+				if(pwc.cmd.charAt(i) == '\n')
+					tmp = true,
+					++ i;
+			}
+			p.log.text = pwc.cmd.substr(i).split(/\r?\n\t/)[1].replace(/^[\t\u2409\u21E5\r\n]+/, "").replace(/[\u2080-\u2089]/g,
+				function(str) {
+					var	index = str.charCodeAt(0) - 0x2080;
+					if(index > 0)
+						return nlaps >= index - 1 ? nreps[nlaps - index + 1] : "?";
+					return "" + iRow;
+				}
+			).replace(/\xA7/g, "" + iMeasure);*/
+			continue;
+		}
 		if(GLY_SHOW_DELAY == pwc.cmd.charCodeAt(pwc.ptr)) {
 			if(pwc.tmp.iNumerator < 0 && pwc.tmp.iDenominator < 0) {
-				if(p.Measures[iMeasure].iDelayDiv > 0)
+				if(p.Measures[iMeasure].iDelayDiv > 0) {
 					p.movie.push({
 						measure	:{index: p.iMeasure, row: p.Measures[iMeasure].iRow},
 						delay	:(p.iDelay * p.Measures[iMeasure].iDelayMul / p.Measures[iMeasure].iDelayDiv),
 						leds	:[].concat(p.levels),
-						row	:p.iRow
+						row	:p.iRow,
+						text	:p.log.text
 					});
-				else {
+				} else {
 					alert("ERROR: Measure #" + iMeasure + " Row " + iRow);
 				}
 			} else
@@ -367,9 +413,9 @@ function	parse_measure(p, iMeasure, ptr = -1) {
 }
 
 function	animate() {
-	var	q = LEDs.movie.shift();
+	var	q = LEDs.movie.shift(), hPrg = document.getElementById("Progress");
 	if(q) {
-		var	i, sPrg, iPrg, hPrg = document.getElementById("Progress");
+		var	i, sPrg, iPrg;
 		/*LEDs.levels = q.leds;
 		LEDs.iMeasure = q.measure;
 		LEDs.Measures[q.measure].iRow = q.row;
@@ -377,7 +423,8 @@ function	animate() {
 		console.log(q);*/
 		ShowLEDs(LEDs, q);
 		hTimer = setTimeout("animate()", q.delay);
-		iPrg = Math.floor((iPrc - LEDs.movie.length) * 100 / iPrc);
+		iDuration += q.delay;
+		iPrg = Math.floor(iDuration * 100 / iEstimated);
 		sPrg = "";
 		for(i = 0; i < iPrg; i += 2)
 			sPrg += "\u2593";
@@ -386,14 +433,17 @@ function	animate() {
 			sPrg += "\u2591",
 			i += 2;
 		hPrg.textContent = sPrg;
-	}
+	} else
+	if(iEstimated > 1)
+		hPrg.textContent = "Completed! Click for share this scenario.";
 }
 
 function	parse(p, cmd) {
 	var	preps	= [],
 		nreps	= [],
-		nlaps	= -1;
-	p.Scenario = "";
+		nlaps	= -1,
+		tmp;
+	p.Scenario = [];
 	p.movie = [];
 	cmd = cmd.split(/\r?\n/);
 	p.iMeasure = -1;
@@ -403,31 +453,40 @@ function	parse(p, cmd) {
 			if((str[0].charCodeAt(0) >= 48 && str[0].charCodeAt(0) <= 57 && str[0].charCodeAt(1) == GLY_MEASURE_SET)
 			|| (str[0].charCodeAt(1) >= 48 && str[0].charCodeAt(1) <= 57 && str[0].charCodeAt(0) == GLY_MEASURE)) {
 				p.iMeasure = str[0].charCodeAt(1) == GLY_MEASURE_SET ? str[0].charCodeAt(0) - 48 : str[0].charCodeAt(1) - 48;
-				p.Measures[p.iMeasure].cmd = str.join("\t").substr(2) + "\r\n";
+				p.Measures[p.iMeasure].cmd = str.join("\t").substr(2);
 				p.Measures[p.iMeasure].iRow = 0;
 				p.Measures[p.iMeasure].ptr = 0;
 				return;
 			}
-			if(str[0] == "" && str[1] != "" && p.iMeasure >= 0) {
-				p.Measures[p.iMeasure].cmd += "\t" + str.join("\t").substr(0) + "\r\n";
+			if(str[1] != "" && p.iMeasure >= 0) {
+				if(p.Measures[p.iMeasure].cmd == "")
+					tmp = "";
+				else
+					tmp = "\r\n";
+				p.Measures[p.iMeasure].cmd += tmp + str.join("\t").substr(0);
 				return;
 			}
 			if(str[0] == "" && str[1] != "" && p.iMeasure < 0) {
-				p.Scenario += str[1] + "\r\n";
+				p.Scenario.push(str.join("\t").substr(1));
 				return;
 			}
-			p.iMeasure = -1;
+			if(str[0] != "" && p.iMeasure < 0) {
+				p.Scenario[p.Scenario.length - 1] += "\t" + str.join("\t");
+				return;
+			}
 		}
+		p.iMeasure = -1;
 	});
 	p.iDelay = 1000,
 	p.iDelayMul = 1,
 	p.iDelayDiv = 1;
 	p.iRow = 0;
-	p.Scenario.split(/\r?\n/)
+	p.Scenario//.split(/\r?\n/)
 	.forEach(function(str) {
 		p.cmd = str;
 		p.ptr = 0;
 		p.iRow ++;
+		p.log.text = "";
 		while(p.cmd.charCodeAt(p.ptr) >= 32) {
 			while(p.cmd.charCodeAt(p.ptr) == 32)
 				++ p.ptr;
@@ -479,15 +538,35 @@ function	parse(p, cmd) {
 				++ p.ptr;
 				continue;
 			}
+			if(GLY_STATE_NULL == p.cmd.charCodeAt(p.ptr) && p.tmp.iNumerator < 0 && p.tmp.iDenominator < 0) {
+				p.log.text = "";
+				++ p.ptr;
+				continue;
+			}
+			if(GLY_STATE_PRINT == p.cmd.charCodeAt(p.ptr) && p.tmp.iNumerator < 0 && p.tmp.iDenominator < 0) {
+				i = ++ p.ptr;
+				while(i < p.cmd.length && !GLYC_TAB(p.cmd.charCodeAt(i)))
+					++ i;
+				p.log.text = p.cmd.substr(i + 1).replace(/[\u2080-\u2089]/g,
+					function(str) {
+						var	index = str.charCodeAt(0) - 0x2080;
+						if(index > 0)
+							return nlaps >= index - 1 ? nreps[nlaps - index + 1] : "?";
+						return "" + p.iRow;
+					}
+				).replace(/\xA7/g, (p.iMeasure < 0 ? "\xA7" : "" + p.iMeasure));
+				continue;
+			}
 			if(GLY_SHOW_DELAY == p.cmd.charCodeAt(p.ptr)) {
-				if(p.iNumerator < 0 && p.iDenominator < 0)
+				if(p.iNumerator < 0 && p.iDenominator < 0) {
 					p.movie.push({
 						measure	:{index: -1, row: -1},
 						delay	:(p.iDelay * p.iDelayMul / p.iDelayDiv),
 						leds	:[].concat(p.levels),
-						row	:p.iRow
+						row	:p.iRow,
+						text	:p.log.text
 					});
-				else {
+				} else {
 					if(p.iNumerator > 0 && p.iDenominator > 0)
 						p.iDelayMul = p.iNumerator,
 						p.iDelayDiv = p.iDenominator;
@@ -529,9 +608,12 @@ function	parse(p, cmd) {
 		}
 	});
 	clearTimeout(hTimer);
-	iPrc = p.movie.length;
-	document.getElementById("Progress").textContent = "";
-	animate();
+	iDuration = 0;
+	iEstimated = 0;
+	p.movie.forEach(function(iDelay) { iEstimated += +iDelay.delay; });
+	document.getElementById("Progress").textContent = "Halted";
+	if(iEstimated > 0)
+		animate();
 }
 
 function insertAtCursor(hText, szChar) {
@@ -556,114 +638,72 @@ function insertAtCursor(hText, szChar) {
 
 function main() {
 	var	operators = [
-		"0x003720E3:Paragraph #7",
-		"0x003420E3:Paragraph #4",
-		"0x003120E3:Paragraph #1",
-		"0x003020E3:Paragraph #0",
-		"0x00A70037:Paragraph #7",
-		"0x00A70034:Paragraph #4",
-		"0x00A70031:Paragraph #1",
-		"0x00A70030:Paragraph #0",
-		"0x003820E3:Paragraph #8",
-		"0x003520E3:Paragraph #5",
-		"0x003220E3:Paragraph #2",
-		"0x00002328:Keyboard",
-		"0x00A70038:Paragraph #8",
-		"0x00A70035:Paragraph #5",
-		"0x00A70032:Paragraph #2",
-		"0x000000A7:Paragraph",
-		"0x003920E3:Paragraph #9",
-		"0x003620E3:Paragraph #6",
-		"0x003320E3:Paragraph #3",
-		"0x24090009:Tabulation",
-		"0x00A70039:Paragraph #9",
-		"0x00A70036:Paragraph #6",
-		"0x00A70033:Paragraph #3",
-		"0x21E50009:Tabulation",
-		"0x00000037:Number 7",
-		"0x00000034:Number 4",
-		"0x00000031:Number 1",
-		"0x00000030:Number 0",
-		"0x00000027:Apostrophe",
-		"0x00000024:Dollar",
+		"0x003720E3:Define/append paragraph #7		Select paragraph #7",
+		"0x003420E3:Define/append paragraph #4		Select paragraph #4",
+		"0x003120E3:Define/append paragraph #1		Select paragraph #1",
+		"0x003020E3:Define/append paragraph #0		Select paragraph #0",
 		"0x00000021:Exclamation",
-		"0x00000020:Space",
-		"0x00000038:Number 8",
-		"0x00000035:Number 5",
-		"0x00000032:Number 2",
-		"0x0000002E:Point",
-		"0x00000028:Bracket",
-		"0x00000025:Percent",
-		"0x00000022:Quote",
-		"0x0000002C:Comma",
-		"0x00000039:Number 9",
-		"0x00000036:Number 6",
-		"0x00000033:Number 3",
-		"0x23CE000D:Enter",
-		"0x00000029:Bracket",
-		"0x00000026:Ampersand",
-		"0x00000023:Sharp",
-		"0x00000020:Space",
-		"0x000021E1:Fade in",
-		"0x0000239A:Clear",
-		"0x000021E3:Fade out",
-		"0x000023F1:Delaying",
-		"0x00002935:Next line in paragraph",
+		"0x00000031:Number @",
+		"0x00A70037:Define/append paragraph #7		Select paragraph #7",
+		"0x00A70034:Define/append paragraph #4		Select paragraph #4",
+		"0x00A70031:Define/append paragraph #1		Select paragraph #1",
+		"0x00A70030:Define/append paragraph #0		Select paragraph #0",
+		"0x003820E3:Define/append paragraph #8		Select paragraph #8",
+		"0x003520E3:Define/append paragraph #5		Select paragraph #5",
+		"0x003220E3:Define/append paragraph #2		Select paragraph #2",
 		"0x0000219D:Replay line of paragraph",
-		"0x00002934:Previous line of paragraph",
-		"0x000023F2:Timing",
-		"0x00002679:Special FX #7",
-		"0x00002676:Special FX #4",
-		"0x00002673:Special FX #1",
-		"0x00002672:Special FX #0",
-		"0x00002637:Trigram FX #7 - Earth",
-		"0x00002634:Trigram FX #4 - Wind",
-		"0x00002631:Trigram FX #1 - Lake",
-		"0x00002630:Trigram FX #0 - Heaven",
-		"0x0000267A:Special FX",
-		"0x00002677:Special FX #5",
-		"0x00002674:Special FX #2",
-		"0x0000267B:Refreshing",
-		"0x00002397:Push history",
-		"0x00002635:Trigram FX #5 - Water",
-		"0x00002632:Trigram FX #2 - Fire",
-		"0x00002316:Log status",
-		"0x0000267D:Special FX",
-		"0x00002678:Special FX #6",
-		"0x00002675:Special FX #3",
-		"0x0000267A:Special FX",
-		"0x00002398:Pop history",
-		"0x00002636:Trigram FX #6 - Mountain",
-		"0x00002633:Trigram FX #3 - Thunder",
-		"0x00002399:Show status",
+		"0x00000022:Quote",
+		"0x00000032:Number @",
+		"0x00A70038:Define/append paragraph #8		Select paragraph #8",
+		"0x00A70035:Define/append paragraph #5		Select paragraph #5",
+		"0x00A70032:Define/append paragraph #2		Select paragraph #2",
+		"0x000000A7:Define/append paragraph - @0 .. @9	Select paragraph - @0 .. @9		Switch to paragraph row - 0@ .. 999@",
+		"0x003920E3:Define/append paragraph #9		Select paragraph #9",
+		"0x003620E3:Define/append paragraph #6		Select paragraph #6",
+		"0x003320E3:Define/append paragraph #3		Select paragraph #3",
+		"0x21E50009:Tabulation",
+		"0x00000023:Sharp",
+		"0x00000033:Number @",
+		"0x00A70039:Define/append paragraph #9		Select paragraph #9",
+		"0x00A70036:Define/append paragraph #6		Select paragraph #6",
+		"0x00A70033:Define/append paragraph #3		Select paragraph #3",
+		"0x00A70028:Active paragraph settings - @(...)",
 		"0x00002077:^7",
 		"0x00002074:^4",
 		"0x000000B9:^1",
 		"0x00002070:^0",
-		"0x00002087:_7",
-		"0x00002084:_4",
-		"0x00002081:_1",
-		"0x00002080:_0",
+		"0x00000024:Dollar",
+		"0x00000034:Number @",
+		"0x00002087:Iteration of cycle #7",
+		"0x00002084:Iteration of cycle #4",
+		"0x00002081:Iteration of cycle #1",
+		"0x00002080:Index of current row",
 		"0x00002078:^8",
 		"0x00002075:^5",
 		"0x000000B2:^2",
-		"0x00000020:?",
-		"0x00002088:_8",
-		"0x00002085:_5",
-		"0x00002082:_2",
-		"0x00000020:?",
+		"0x00002316:Log status",
+		"0x00000025:Percent",
+		"0x00000035:Number @",
+		"0x00002088:Iteration of cycle #8",
+		"0x00002085:Iteration of cycle #5",
+		"0x00002082:Iteration of cycle #2",
+		"0x000023F1:Reset to basic delay - 0@		Set basic delay(ms) - 1@ .. 99999@		Adjust current delay - \xBD@..99\xBC\xBD@",
 		"0x00002079:^9",
 		"0x00002076:^6",
 		"0x000000B3:^3",
-		"0x00000020:?",
-		"0x00002089:_9",
-		"0x00002086:_6",
-		"0x00002083:_3",
-		"0x00000020:?",
+		"0x24090009:Tabulation",
+		"0x00000026:Ampersand",
+		"0x00000036:Number @",
+		"0x00002089:Iteration of cycle #9",
+		"0x00002086:Iteration of cycle #6",
+		"0x00002083:Iteration of cycle #3",
+		"0x000023F2:Timing				---",
 		"0x0000215E:7/8",
 		"0x000000BE:3/4",
 		"0x00002156:2/5",
 		"0x00000020:?",
+		"0x00000027:Apostrophe",
+		"0x00000037:Number @",
 		"0x00002150:1/7",
 		"0x000000BC:1/4",
 		"0x00000020:?",
@@ -671,42 +711,78 @@ function main() {
 		"0x0000215D:5/8",
 		"0x00002158:4/5",
 		"0x00002154:2/3",
-		"0x00000020:?",
+		"0x00002397:Push history			--- comming soon",
+		"0x00000028:Open the bracket			Loop for n-times - 1(...) .. 999(...)",
+		"0x00000038:Number @",
 		"0x0000215B:1/8",
 		"0x00002155:1/5",
 		"0x000000BD:1/2",
-		"0x00000020:?",
+		"0x00002399:Show status",
 		"0x00002157:3/5",
 		"0x0000215A:5/6",
 		"0x0000215C:3/8",
-		"0x00000020:?",
+		"0x00002398:Pop history				--- comming soon",
+		"0x00000029:Closing bracket",
+		"0x00000039:Number @",
 		"0x00002151:1/9",
 		"0x00002159:1/6",
 		"0x00002153:1/3",
+		"0x0000239A:Clear",
+		"0x00002679:Special FX #7			---",
+		"0x00002676:Special FX #4			---",
+		"0x00002673:Special FX #1			---",
+		"0x00002672:Special FX #0			---",
+		"0x00000020:Space",
+		"0x00000030:Number @",
+		"0x00002637:Trigram FX #7 - Earth		---",
+		"0x00002634:Trigram FX #4 - Wind		---",
+		"0x00002631:Trigram FX #1 - Lake		---",
+		"0x00002630:Trigram FX #0 - Heaven		---",
+		"0x0000267A:Special FX				---",
+		"0x00002677:Special FX #5			---",
+		"0x00002674:Special FX #2			---",
+		"0x0000267B:Set the LEDs refreshing frequency(Hz) - 1@ .. 1000@",
+		"0x000021E3:Fade out FX - @\u2878\u283F\u2887	Decrement the keyboard selector - @\u2328",
+		"0x000021E1:Fade in FX - @\u2878\u283F\u2887	Increment the keyboard selector - @\u2328",
+		"0x00000020:?",
+		"0x00002635:Trigram FX #5 - Water		---",
+		"0x00002632:Trigram FX #2 - Fire		---",
+		"0x00002328:Select keyboard - 0@ .. 9@		Set keyboards order - 11@ .. 999999999@",
+		"0x0000267D:Special FX				---",
+		"0x00002678:Special FX #6			---",
+		"0x00002675:Special FX #3			---",
+		"0x0000267A:Special FX				---",
+		"0x00002935:Go to next line in paragraph	Skip lines in paragraph - 1@ .. 999@",
+		"0x00002934:Go to previous line of paragraph	Back up to lines in paragraph - 1@ .. 999@",
+		"0x00000020:?",
+		"0x00002636:Trigram FX #6 - Mountain		---",
+		"0x00002633:Trigram FX #3 - Thunder		---",
+		"0x23CE000D:Enter",
 		];
 	var	hTab = document.getElementById("Operators");
 	var	hRow, hCell;
 	var	x, y, i, n, tmp;
 	for(y = 0; y < 10; ++ y) {
 		hRow = hTab.insertRow(y);
-		if(y < 8)
-			n = ((7 - y + operators.length) >> 3) + 8;
-		else
-			n = 8;
+//		if(y < 8)
+			n = Math.floor((9 - y + operators.length) / 10) + 8;
+//		else
+//			n = 8;
 		for(x = 0; x < n; ++ x) {
 			hCell = hRow.insertCell(x);
 			hCell.className = "operator";
 			hCell.width = "32px";
 			if(x < 8)
-				tmp = [y < 8 ? 0x2800 + x * 8 + y : y < 9 ? 0x2840 + x * 8 : 0x2880 + x, "Paste LEDs state to scenario"];
+				tmp = [y < 8 ? 0x2800 + x * 8 + y : y < 9 ? 0x2840 + x * 8 : 0x2880 + x, "Paste to scenario this LEDs atate" + (y < 8 ? "" : " with column skip")];
 			else
-				tmp = operators[(x - 8) * 8 + y].split(":");
+				tmp = operators[(x - 8) * 10 + y].split(":");
 			hCell.title = tmp[1];
 			tmp = parseInt(tmp[0]);
 			if(tmp < 65535)
 				hCell.innerHTML = "&#" + tmp + ";";
 			else
 				hCell.innerHTML = "&#" + (tmp >> 16) + ";&#" + (tmp & 65535) + ";";
+			hCell.title = hCell.title.replace(/[\t]+/g, "\r\n").replace(/@/g, hCell.textContent);
 			hCell.addEventListener("click",
 				function(e) {
 					if(e.target && e.target.nodeName == "TD") {
@@ -727,6 +803,10 @@ function main() {
 			tmp	:{
 				iNumerator	:-1,
 				iDenominator	:-1
+			},
+			log	:{
+				args: [],
+				text: ""
 			}
 		};
 	}
@@ -750,7 +830,7 @@ function main() {
 </script>
 </head>
 <body onload='main()'>
-<table><tr valign=top><td><textarea id='Scenario' rows=25 cols=64></textarea></td><td><pre id=leds></pre><table id='Operators'></table></td></tr></table>
+<table><tr valign=top><td><textarea id='Scenario' rows=25 cols=80></textarea></td><td><pre id=leds></pre><table id='Operators'></table></td></tr></table>
 <button onclick='document.getElementById("Progress").href=url+"?script="+escape(document.getElementById("Scenario").value).replace(/%u/g, "%25u"); parse(LEDs, document.getElementById("Scenario").value)'>Compile Glazeur-scenario</button>
 <a href='' id=Progress>Progress - 0%</a>
 <p style=text-align:center><a href='http://github.com/Alikberov'>Visit me now</a><br />&copy;2017 Alikberov</p>
