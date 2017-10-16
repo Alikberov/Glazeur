@@ -8,7 +8,7 @@
 <meta content='NoIndex,NoArchive'					name='Robots'	 />
 <meta content='http://github.com/Alikberov'				name='Author'	 />
 <meta description='Glazeur-Scenarist'							 />
-<!--meta http-equiv=refresh content='300'>						<!--	-->
+<meta http-equiv=refresh content='900'>							 />
 <title>Glazeur-scripting</title>
 <style>
 pre#leds{
@@ -17,15 +17,53 @@ pre#leds{
 td.operator	{
 	border		:white thin outset;
 	cursor		:pointer;
-	font-family	:"Segoe UI Symbol";
+	font-family	:"Segoe UI Emoji";
 	font-size	:28px;
 }
 textarea{
-	font-family	:"Segoe UI Symbol";
-	font-size	:24px;
+	font-family	:"Segoe UI Emoji";
+	font-size	:18px;
 }
 </style>
 <script>
+function	WCHAR(str) {
+	var
+		ptr	= 0,
+		string	= str;
+	return {
+		set ptr(seek)	{	// seek to position
+			ptr = seek;
+		},
+		set concat(str)	{
+			string += str;
+		},
+		get ptr()	{	// get the position
+			return ptr;
+		},
+		get str()	{	// get string by position
+			return string.substr(ptr);
+		},
+		get c_ptr()	{	// char by pointer
+			return string.charAt(ptr);
+		},
+		get a_ptr()	{	// ascii by pointer
+			return string.charCodeAt(ptr);
+		},
+		get c_ptr_pp()	{	// char by pointer with post-increment
+			return string.charAt(ptr ++);
+		},
+		get a_ptr_pp()	{	// ascii by pointer with post-increment
+			return string.charCodeAt(ptr ++);
+		},
+		get c_pp_ptr()	{	// char by pointer with pre-increment
+			return string.charAt(++ ptr);
+		},
+		get a_pp_ptr()	{	// ascii by pointer with pre-increment
+			return string.charCodeAt(++ ptr);
+		}
+	};
+}
+////////////////////////////////////////////////////////////////////////////////
 var	LEDs	= {
 		levels	: [0,0,0,0,0,0,0,0,0,0],
 		movie	: [],
@@ -46,7 +84,8 @@ var	LEDs	= {
 		iRow	: 0,
 		remark	: "",
 		log	: {
-			text: ""
+			text: "",
+			Measures: []
 		}
 	};
 var	url;
@@ -68,15 +107,17 @@ var	GLY_MEASURE		= 0x00A7,	//	§	Measure
 	GLY_STATE_NULL		= 0x239A,	// [/]	Clear state
 	GLY_SHOW_DELAY		= 0x23F1,	// (^)	Show delay pause
 	GLY_SHOW_SPEED		= 0x23F2,	// (-)	Show speed
-	GLY_SHOW_CLOCK		= 0x267B,	// /_\	Show clock frequency
+	GLY_SHOW_CLOCK		= 0x3390,//267B,	// /_\	Show clock frequency
 	GLY_SHOW_ALERT		= 0x26A0,	// /!\	Alert
 	GLY_STATE_STOP		= 0x26D4,	// (=)	Stop/Halt
 	GLY_MEASURE_UP		= 0x2934,	// /\	Measure prev. line
 	GLY_MEASURE_DWN		= 0x2935,	// \/	Measure next line
-	GLY_MEASURE_RUN		= 0x219D;	// ->	Measure line run
+	GLY_MEASURE_RUN		= 0x219D,	// ->	Measure line run
 	//
-	GLY_STATE_LOG		= 0x2316;	// -*-	Logging the status
-	GLY_STATE_PRINT		= 0x2399;	// [~]	Print the status
+	GLY_STATE_LOG		= 0x2316,	// -*-	Logging the status
+	GLY_STATE_PRINT		= 0x2399,	// [~]	Print the status
+	GLY_SETUP_HZ		= 0x3390,	// Hz	Set up the Hz
+	GLY_SETUP_MS		= 0x33B3;	// ms	Set up the ms
 ////////////////////////////////////////////////////////////////////////////////
 //	GLazeur_Check_for_Tab
 function GLYC_TAB(wc) { return (GLY_TABULATION == wc || GLY_TABULATIONG == wc || GLY_TABULATIONS == wc); }
@@ -105,10 +146,10 @@ function	ShowLEDs(p, q) {
 			html += "<span style=color:yellow>Progress: " + ("  " + Math.floor(iDuration * 100 / iEstimated)).substr(-3) + "% [" + ds + "]</span><br />";
 			break;
 		case 17:
-			html += "<span style=color:yellow>Scenario: row #" + (q.row >= 0 ? q.row + "  " : "---").substr(0, 3) + "</span><br />";
+			html += "<span style=color:yellow>Scenario" + (q.row >= 0 ? "-Row#" + q.row + (q.measure.index >= 0 ? " " + q.measure.row + "&#167;" + q.measure.index + "(...)" : "") : " halted...") + "</span><br />";
 			break;
 		case 26:
-			html += "<span style=color:yellow>Measure #" + (q.measure.index >= 0 ? q.measure.index + " / Row #" + q.measure.row : "---") + " // " + q.text + "</span>";
+			html += "<span style=color:yellow>Logging:" + q.text + "</span>";
 			break;
 		}
 	}
@@ -135,65 +176,72 @@ function parse_fraction(p) {
 		0x21580405,	//	4/5	0.8
 		0x215A0506,	//	5/6	0.833
 		0x215E0708,	//	7/8	0.875
-		0x21890003	//	0/3
-	],	i;
-	if(p.cmd[p.ptr] > '0' && p.cmd[p.ptr] <= '9') {
+		0x21890003,	//	0/3
+	],	i, wcode;
+	if(p.cmd.c_ptr > '0' && p.cmd.c_ptr <= '9') {
 		p.tmp.iNumerator = 0;
-		while(p.cmd[p.ptr] >= '0' && p.cmd[p.ptr] <= '9')
-			p.tmp.iNumerator = p.tmp.iNumerator * 10 + +p.cmd[p.ptr ++];
+		while(p.cmd.c_ptr >= '0' && p.cmd.c_ptr <= '9')
+			p.tmp.iNumerator = p.tmp.iNumerator * 10 + +p.cmd.c_ptr_pp;
 	} else
-	if(p.cmd[p.ptr] == '0') {
+	if(p.cmd.c_ptr == '0') {
 		p.tmp.iNumerator = 0;
-		while(p.cmd[p.ptr] >= '0' && p.cmd[p.ptr] <= '7')
-			p.tmp.iNumerator = p.tmp.iNumerator * 8 + +p.cmd[p.ptr ++];
+		while(p.cmd.c_ptr >= '0' && p.cmd.c_ptr <= '7')
+			p.tmp.iNumerator = p.tmp.iNumerator * 8 + +p.cmd.c_ptr_pp;
 	} else
 		p.tmp.iNumerator = -1;
 	p.tmp.iDenominator = -1;
+	wcode = p.cmd.a_ptr;
 	do {
 		i = iFractions.length;
 		while(i --) {
 			n = iFractions[i];
-			if(n >> 16 == p.cmd.charCodeAt(p.ptr)) {
-				if(p.tmp.iNumerator < 0)
-					p.tmp.iNumerator = 1;
+			if(n >> 16 == wcode) {
+				if(p.tmp.iNumerator < 1)
+					p.tmp.iNumerator = (n >> 8) & 255;
+				else
+				if(p.tmp.iDenominator < 1)
+					p.tmp.iNumerator *= n & 255;
+				else
+					p.tmp.iNumerator *= (n >> 8) & 255;
 				if(p.tmp.iDenominator < 1)
 					p.tmp.iDenominator = n & 255;
 				else
 					p.tmp.iDenominator *= n & 255;
-				p.tmp.iNumerator *= (n >> 8) & 255;
 				for(i = 2; p.tmp.iNumerator / i >= 1 && p.tmp.iDenominator / i >= 1; ++ i) {
 					if(p.tmp.iNumerator == Math.floor(p.tmp.iNumerator / i) * i && p.tmp.iDenominator == Math.floor(p.tmp.iDenominator / i) * i)
 						p.tmp.iNumerator /= i,
 						p.tmp.iDenominator /= i,
 						i = 1;
 				}
-				p.ptr ++;
+				wcode = p.cmd.a_pp_ptr;
 				break;
 			}
 		}
 	} while(i >= 0);
 	return p;
 }
+
 function play_effect(p, pp) {
 	var	mode = 0,
 		code,
 		index;
 	var	lo, hi;
 	//
-	switch(p.cmd.charCodeAt(p.ptr)) {
+	switch(p.cmd.a_ptr) {
 	case GLY_FADE_IN:
 	case GLY_FADE_OUT:
 	case GLY_STATE_NULL:
-		mode = p.cmd.charCodeAt(p.ptr ++);
+		mode = p.cmd.a_ptr_pp;
 	}
-	if(p.cmd.charCodeAt(p.ptr) >= 0x2800 && p.cmd.charCodeAt(p.ptr) <= 0x28FF) {
+	code = p.cmd.a_ptr;
+	if(code >= 0x2800 && code <= 0x28FF) {
 		index = p.tmp.iNumerator;
 		if(index < 1 || index > 9)
 			index = p.tmp.iKeyboard;
 		if(index < 1 || index > 9)
 			return false;
-		while(p.cmd.charCodeAt(p.ptr) >= 0x2800 && p.cmd.charCodeAt(p.ptr) <= 0x28FF) {
-			code = p.cmd.charCodeAt(p.ptr ++) & 255;
+		while(code >= 0x2800 && code <= 0x28FF) {
+			code &= 255;
 			switch(mode) {
 			case GLY_FADE_IN:
 				lo = 001111111111 * (code & 7),
@@ -204,7 +252,7 @@ function play_effect(p, pp) {
 				if((code & 0200) == 0)
 					pp.levels[index] = (pp.levels[index] & ~hi) | ((pp.levels[index] << 3) & hi) | (pp.levels[index] & hi);
 				index = index % 9 + 1;
-				continue;
+				break;
 			case GLY_FADE_OUT:
 				lo = 001111111110 * (code & 7),
 				hi = 001111111110 * ((code >> 3) & 7);
@@ -214,7 +262,7 @@ function play_effect(p, pp) {
 				if((code & 0200) == 0)
 					pp.levels[index] = (pp.levels[index] & ~hi) | ((pp.levels[index] & hi) >> 3);
 				index = index % 9 + 1;
-				continue;
+				break;
 			default:
 				lo = 001111111111 * (code & 7),
 				hi = 001111111111 * ((code >> 3) & 7);
@@ -224,12 +272,13 @@ function play_effect(p, pp) {
 				if((code & 0200) == 0)
 					pp.levels[index] = (pp.levels[index] & 030000000000) | hi;
 				index = index % 9 + 1;
-				continue;
+				break;
 			}
+			code = p.cmd.a_pp_ptr;
 		}
 		return true;
 	}
-	if(GLY_DEVICE_SET == p.cmd.charCodeAt(p.ptr) && p.tmp.iDenominator < 0) {
+	if(GLY_DEVICE_SET == code && p.tmp.iDenominator < 0) {
 		if(p.tmp.iNumerator >= 1 && p.tmp.iNumerator <= 9)
 			p.tmp.iKeyboard = p.tmp.iNumerator;
 		else
@@ -241,7 +290,7 @@ function play_effect(p, pp) {
 		else
 		if(p.tmp.iNumerator < 0 && mode == GLY_FADE_OUT)
 			p.tmp.iKeyboard = (p.tmp.iKeyboard + 7) % 9 + 1;
-		p.ptr ++;
+		p.cmd.ptr ++;
 		return true;
 	}
 	return false;
@@ -262,81 +311,84 @@ function	parse_measure_rows(p, row) {
 	var	rows	= 0;
 	//
 	while(row > 0) {
-		while(0x000D != p.cmd.charCodeAt(p.ptr)) {
-			if(!p.cmd.charCodeAt(p.ptr))
+		while(0x000D != p.cmd.a_ptr) {
+			if(!p.cmd.a_ptr)
 				return rows;
-			p.ptr ++;
+			p.cmd.ptr ++;
 		}
-		if(0x000A == p.cmd.charCodeAt(++ p.ptr))
-			p.ptr ++;
+		if(0x000A == p.cmd.a_pp_ptr)
+			p.cmd.ptr ++;
 		++ rows;
-		if(GLYC_TAB(p.cmd.charCodeAt(p.ptr)))
-			p.ptr ++, -- row;
+		if(GLYC_TAB(p.cmd.a_ptr))
+			p.cmd.ptr ++, -- row;
 		else
-		if(p.cmd.charCodeAt(p.ptr) < 32)
+		if(p.cmd.a_ptr < 32)
 			return rows;
 		else
-			p.remark = p.cmd.substr(p.ptr).split(/\r|\n/)[0];
+			p.remark = p.cmd.str.split(/\r|\n/)[0];
 	};
 	return rows;
 }
+
 function	parse_measure(p, iMeasure, ptr) {
-	var	pwc	= p.Measures[iMeasure];
+	var	pm	= p.Measures[iMeasure];
 	var	preps	= [];
 	var	nreps	= [];
 	var	nlaps	= -1;
 	var	iRow;
 	var	nTabs	= 0;
-	var	i, tmp;
+	var	i, tmp, wcode, ascii;
 	//
 	var	iDelay		= 0;
 	//
-	pwc.remark = "";
+	pm.remark = "";
 	if(ptr >= 0) {
-		pwc = p;
-		pwc.ptr ++;
+		pm = p;
+		pm.cmd.ptr ++;
 		iRow = p.Measures[iMeasure].iRow;
 	} else {
-		pwc.ptr = 0;
-		iRow = parse_measure_rows(pwc, p.Measures[iMeasure].iRow);
-		while(GLYC_TAB(pwc.cmd.charCodeAt(pwc.ptr)))
-			++ pwc.ptr;
+		pm.cmd.ptr = 0;
+		iRow = parse_measure_rows(pm, p.Measures[iMeasure].iRow);
+		while(GLYC_TAB(pm.cmd.a_ptr))
+			++ pm.cmd.ptr;
 	}
-	pwc.tmp.iKeyboard = p.iKeyboard;
-	while(pwc.cmd.charCodeAt(pwc.ptr) >= 32) {
-		while(pwc.cmd.charCodeAt(pwc.ptr) == 32)
-			++ pwc.ptr;
-		parse_fraction(pwc);
-		if((GLY_MEASURE == pwc.cmd.charCodeAt(pwc.ptr) || GLY_MEASURE_SET == pwc.cmd.charCodeAt(pwc.ptr)) && pwc.tmp.iNumerator >= 0 && pwc.tmp.iDenominator < 0) {
-			p.Measures[iMeasure].iRow = pwc.tmp.iNumerator;
-			++ pwc.ptr;
+	pm.tmp.iKeyboard = p.iKeyboard;
+	while(pm.cmd.a_ptr >= 32) {
+		while(pm.cmd.a_ptr == 32)
+			++ pm.cmd.ptr;
+		parse_fraction(pm);
+		wcode = pm.cmd.a_ptr;
+		ascii = pm.cmd.c_ptr;
+		if((GLY_MEASURE == wcode || GLY_MEASURE_SET == wcode) && pm.tmp.iNumerator >= 0 && pm.tmp.iDenominator < 0) {
+			p.Measures[iMeasure].iRow = pm.tmp.iNumerator;
+			++ pm.cmd.ptr;
 			continue;
 		}
-		if(GLY_MEASURE_UP == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iDenominator < 0) {
-			if(pwc.tmp.iNumerator > 0)
-				p.Measures[iMeasure].iRow = p.Measures[iMeasure].iRow > pwc.tmp.iNumerator ? p.Measures[iMeasure].iRow - pwc.tmp.iNumerator : 1;
+		if(GLY_MEASURE_UP == wcode && pm.tmp.iDenominator < 0) {
+			if(pm.tmp.iNumerator > 0)
+				p.Measures[iMeasure].iRow = p.Measures[iMeasure].iRow > pm.tmp.iNumerator ? p.Measures[iMeasure].iRow - pm.tmp.iNumerator : 1;
 			else
-			if(pwc.Measures[iMeasure].iRow > 1)
-				-- pwc.Measures[iMeasure].iRow;
-			++ pwc.ptr;
+			if(pm.Measures[iMeasure].iRow > 1)
+				-- pm.Measures[iMeasure].iRow;
+			++ pm.cmd.ptr;
 			continue;
 		}
-		if(GLY_MEASURE_DWN == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iDenominator < 0) {
-			if(pwc.tmp.iNumerator > 0)
-				p.Measures[iMeasure].iRow += pwc.tmp.iNumerator;
+		if(GLY_MEASURE_DWN == wcode && pm.tmp.iDenominator < 0) {
+			if(pm.tmp.iNumerator > 0)
+				p.Measures[iMeasure].iRow += pm.tmp.iNumerator;
 			else
 				++ p.Measures[iMeasure].iRow;
-			++ pwc.ptr;
+			++ pm.cmd.ptr;
 			continue;
 		}
-		if(GLY_STATE_NULL == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iNumerator < 0 && pwc.tmp.iDenominator < 0) {
+		if(GLY_STATE_NULL == wcode && pm.tmp.iNumerator < 0 && pm.tmp.iDenominator < 0) {
 			p.log.text = "";
-			pwc.ptr ++;
+			pm.cmd.ptr ++;
 			continue;
 		}
-		if(GLY_STATE_PRINT == pwc.cmd.charCodeAt(pwc.ptr) && pwc.tmp.iNumerator < 0 && pwc.tmp.iDenominator < 0) {
-			++ pwc.ptr;
-			p.log.text = pwc.remark.replace(/[\u2080-\u2089]/g,
+		if(GLY_STATE_PRINT == wcode && pm.tmp.iNumerator < 0 && pm.tmp.iDenominator < 0) {
+			++ pm.cmd.ptr;
+			p.log.text = pm.remark.replace(/[\u2080-\u2089]/g,
 				function(str) {
 					var	index = str.charCodeAt(0) - 0x2080;
 					if(index > 0)
@@ -354,61 +406,64 @@ function	parse_measure(p, iMeasure, ptr) {
 			);
 			continue;
 		}
-		if(GLY_SHOW_DELAY == pwc.cmd.charCodeAt(pwc.ptr)) {
-			if(pwc.tmp.iNumerator < 0 && pwc.tmp.iDenominator < 0) {
-				if(p.Measures[iMeasure].iDelayDiv > 0) {
-					p.movie.push({
-						measure	:{index: p.iMeasure, row: p.Measures[iMeasure].iRow},
-						delay	:(p.iDelay * p.Measures[iMeasure].iDelayMul / p.Measures[iMeasure].iDelayDiv),
-						leds	:[].concat(p.levels),
-						row	:p.iRow,
-						text	:p.log.text
-					});
-				} else {
-					alert("ERROR: Measure #" + iMeasure + " Row " + iRow);
-				}
-			} else
-			if(pwc.tmp.iNumerator == 0 && pwc.tmp.iDenominator < 0)
-				p.Measures[iMeasure].iDelayMul = p.iDelay,
+		if(GLY_SETUP_MS == wcode) {
+			++ pm.cmd.ptr;
+			if(pm.tmp.iNumerator > 0 && pm.tmp.iDenominator > 0)
+				p.Measures[iMeasure].iDelayMul = pm.tmp.iNumerator,
+				p.Measures[iMeasure].iDelayDiv = pm.tmp.iDenominator;
+			else
+			if(pm.iNumerator > 0)
+				p.Measures[iMeasure].iDelay = pm.tmp.iNumerator,
+				p.Measures[iMeasure].iDelayMul = 1,
 				p.Measures[iMeasure].iDelayDiv = 1;
-			else {
-				if(pwc.tmp.iNumerator > 0)
-					p.Measures[iMeasure].iDelayMul = pwc.tmp.iNumerator,
-					p.Measures[iMeasure].iDelayDiv = 1;
-				if(pwc.tmp.iDenominator > 0)
-					p.Measures[iMeasure].iDelayDiv = pwc.tmp.iDenominator;
-			}
-			++ pwc.ptr;
+			else
+				p.Measures[iMeasure].iDelay = p.iDelay * p.iDelayMul / p.iDelayDiv,
+				p.Measures[iMeasure].iDelayMul = 1,
+				p.Measures[iMeasure].iDelayDiv = 1;
 			continue;
 		}
-		if(')' == pwc.cmd.charAt(pwc.ptr)) {
+		if(GLY_SHOW_DELAY == wcode) {
+			if(p.Measures[iRow].iDelayDiv > 0)
+				p.movie.push({
+					measure	:{index: iMeasure, row: iRow},
+					delay	:pm.iDelay * (pm.tmp.iNumerator > 0 ? pm.tmp.iNumerator * pm.iDelayMul : pm.iDelayMul) / (pm.tmp.iDenominator > 0 ? pm.tmp.iDenominator * pm.iDelayDiv : pm.iDelayDiv),
+					leds	:[].concat(p.levels),
+					row	:p.iRow,
+					text	:p.log.text
+				});
+			else
+				p.log.Measures[iMeasure][iRow] = true;
+			++ pm.cmd.ptr;
+			continue;
+		}
+		if(')' == ascii) {
 			if(ptr >= 0) {
-				p.ptr = ++ pwc.ptr;
+				p.cmd.ptr = ++ pm.cmd.ptr;
 				return;
 			}
 			if(nlaps >= 0) {
 				if(nreps[nlaps] -- > 1) {
-					pwc.ptr = preps[nlaps];
+					pm.cmd.ptr = preps[nlaps];
 					continue;
 				}
 				-- nlaps;
 			}
-			++ pwc.ptr;
+			++ pm.cmd.ptr;
 			continue;
 		}
-		if('(' == pwc.cmd.charAt(pwc.ptr)) {
-			++ pwc.ptr;
-			if(pwc.tmp.iNumerator > 0 && pwc.tmp.iDenominator < 0) {
+		if('(' == ascii) {
+			++ pm.cmd.ptr;
+			if(pm.tmp.iNumerator > 0 && pm.tmp.iDenominator < 0) {
 				++ nlaps;
-				preps[nlaps] = pwc.ptr;
-				nreps[nlaps] = pwc.tmp.iNumerator;
+				preps[nlaps] = pm.ptr;
+				nreps[nlaps] = pm.tmp.iNumerator;
 				continue;
 			}
 			break;
 		}
-		if(play_effect(pwc, p))
+		if(play_effect(pm, p))
 			continue;
-		++ pwc.ptr;
+		++ pm.cmd.ptr;
 	};
 }
 
@@ -416,11 +471,6 @@ function	animate() {
 	var	q = LEDs.movie.shift(), hPrg = document.getElementById("Progress");
 	if(q) {
 		var	i, sPrg, iPrg;
-		/*LEDs.levels = q.leds;
-		LEDs.iMeasure = q.measure;
-		LEDs.Measures[q.measure].iRow = q.row;
-		LEDs.iRow = q.line;
-		console.log(q);*/
 		ShowLEDs(LEDs, q);
 		hTimer = setTimeout("animate()", q.delay);
 		iDuration += q.delay;
@@ -439,36 +489,40 @@ function	animate() {
 }
 
 function	parse(p, cmd) {
-	var	tmp;
+	var	wcode,
+		ascii,
+		tmp;
 	p.Scenario = [];
 	p.movie = [];
 	cmd = cmd.split(/\r?\n/);
-	p.iMeasure = -1;
+	p.iMeasure = 10;
+	while(p.iMeasure -- > 0)
+		p.log.Measures[p.iMeasure] = [];
 	cmd.forEach(function(str) {
 		if(str != "") {
 			str = str.split(/[\t\u2409\u21E5]+/);
 			if((str[0].charCodeAt(0) >= 48 && str[0].charCodeAt(0) <= 57 && str[0].charCodeAt(1) == GLY_MEASURE_SET)
 			|| (str[0].charCodeAt(1) >= 48 && str[0].charCodeAt(1) <= 57 && str[0].charCodeAt(0) == GLY_MEASURE)) {
 				p.iMeasure = str[0].charCodeAt(1) == GLY_MEASURE_SET ? str[0].charCodeAt(0) - 48 : str[0].charCodeAt(1) - 48;
-				p.Measures[p.iMeasure].cmd = str.join("\t").substr(2);
+				p.Measures[p.iMeasure].cmd = new WCHAR(str.join("\t").substr(2));
 				p.Measures[p.iMeasure].iRow = 0;
 				p.Measures[p.iMeasure].ptr = 0;
 				return;
 			}
 			if(str[0] != "" && p.iMeasure >= 0) {
-				if(p.Measures[p.iMeasure].cmd == "")
+				if(p.Measures[p.iMeasure].cmd.str == "")
 					tmp = "";
 				else
 					tmp = "\r\n";
-				p.Measures[p.iMeasure].cmd += tmp + str.join("\t").substr(0);
+				p.Measures[p.iMeasure].cmd.concat = tmp + str.join("\t").substr(0);
 				return;
 			}
 			if(str[1] != "" && p.iMeasure >= 0) {
-				if(p.Measures[p.iMeasure].cmd == "")
+				if(p.Measures[p.iMeasure].cmd.str == "")
 					tmp = "";
 				else
 					tmp = "\r\n";
-				p.Measures[p.iMeasure].cmd += tmp + str.join("\t").substr(0);
+				p.Measures[p.iMeasure].cmd.concat = tmp + str.join("\t").substr(0);
 				return;
 			}
 			if(str[0] == "" && str[1] != "" && p.iMeasure < 0) {
@@ -489,35 +543,38 @@ function	parse(p, cmd) {
 	p.remark = "";
 	p.Scenario//.split(/\r?\n/)
 	.forEach(function(str) {
-		p.cmd = str;
-		p.ptr = 0;
+		p.cmd = new WCHAR(str);
 		p.iRow ++;
 		p.log.text = "";
 		p.tmp.pReps = [];
 		p.tmp.nReps = [];
-		if(!GLYC_TAB(p.cmd.charCodeAt(p.ptr ++))) {
+		if(!GLYC_TAB(p.cmd.a_ptr_pp)) {
 			p.remark = str;
 			return;
 		}
-		while(GLYC_TAB(p.cmd.charCodeAt(p.ptr)))
-			++ p.ptr;
-		while(p.cmd.charCodeAt(p.ptr) >= 32) {
-			while(p.cmd.charCodeAt(p.ptr) == 32)
-				++ p.ptr;
+		while(GLYC_TAB(p.cmd.a_ptr))
+			++ p.cmd.ptr;
+		while(p.cmd.a_ptr >= 32) {
+			while(p.cmd.a_ptr == 32)
+				++ p.cmd.ptr;
 			parse_fraction(p);
+			wcode = p.cmd.a_ptr;
+			ascii = p.cmd.c_ptr;
 			p.iNumerator = p.tmp.iNumerator;
 			p.iDenominator = p.tmp.iDenominator;
-			if(GLY_MEASURE_SET == p.cmd.charCodeAt(p.ptr) && p.iNumerator >= 0 && p.iNumerator <= 9 && p.iDenominator < 0) {
+			if(GLY_MEASURE_SET == wcode && p.iNumerator >= 0 && p.iNumerator <= 9 && p.iDenominator < 0) {
 				p.iMeasure = p.iNumerator;
 				++ p.ptr;
 				continue;
 			}
-			if(GLY_MEASURE == p.cmd.charCodeAt(p.ptr)) {
-				++ p.ptr;
-				if(p.cmd.charCodeAt(p.ptr) >= 0x30 && p.cmd.charCodeAt(p.ptr) <= 0x39)
-					p.iMeasure = p.cmd.charCodeAt(p.ptr ++) - 0x30;
+			if(GLY_MEASURE == wcode) {
+				wcode = p.cmd.a_pp_ptr;
+				ascii = p.cmd.c_ptr;
+				if(wcode >= 0x30 && wcode <= 0x39)
+					p.iMeasure = wcode - 0x30,
+					p.cmd.ptr ++;
 				else
-				if(p.iMeasure >= 0 && p.iNumerator < 0 && '(' == p.cmd.charAt(p.ptr)) {
+				if(p.iMeasure >= 0 && p.iNumerator < 0 && '(' == ascii) {
 					parse_measure(p, p.iMeasure, 1);
 					continue;
 				}
@@ -525,40 +582,40 @@ function	parse(p, cmd) {
 					p.Measures[p.iMeasure].iRow = p.iNumerator;
 				continue;
 			}
-			if(GLY_MEASURE_UP == p.cmd.charCodeAt(p.ptr) && p.iDenominator < 0 && p.iMeasure >= 0) {
+			if(GLY_MEASURE_UP == wcode && p.iDenominator < 0 && p.iMeasure >= 0) {
 				if(p.iNumerator > 0)
 					p.Measures[p.iMeasure].iRow = p.Measures[p.iMeasure].iRow > p.iNumerator ? p.Measures[p.iMeasure].iRow - p.iNumerator : 1;
 				else
 				if(p.Measures[p.iMeasure].iRow > 1)
 					-- p.Measures[p.iMeasure].iRow;
-				++ p.ptr;
+				++ p.cmd.ptr;
 				continue;
 			}
-			if(GLY_MEASURE_DWN == p.cmd.charCodeAt(p.ptr) && p.iDenominator < 0 && p.iMeasure >= 0) {
+			if(GLY_MEASURE_DWN == wcode && p.iDenominator < 0 && p.iMeasure >= 0) {
 				if(p.iNumerator > 0)
 					p.Measures[p.iMeasure].iRow += p.iNumerator;
 				else
 					++ p.Measures[p.iMeasure].iRow;
-				++ p.ptr;
+				++ p.cmd.ptr;
 				continue;
 			}
-			if(GLY_MEASURE_RUN == p.cmd.charCodeAt(p.ptr) && p.iDenominator < 0 && p.iMeasure >= 0) {
+			if(GLY_MEASURE_RUN == wcode && p.iDenominator < 0 && p.iMeasure >= 0) {
 				parse_measure(p, p.iMeasure);
-				++ p.ptr;
+				++ p.cmd.ptr;
 				continue;
 			}
-			if(GLY_SHOW_CLOCK == p.cmd.charCodeAt(p.ptr) && p.iNumerator > 0 && p.iDenominator < 0) {
+			if(GLY_SHOW_CLOCK == wcode && p.iNumerator > 0 && p.iDenominator < 0) {
 				p.speed = p.iNumerator;
-				++ p.ptr;
+				++ p.cmd.ptr;
 				continue;
 			}
-			if(GLY_STATE_NULL == p.cmd.charCodeAt(p.ptr) && p.tmp.iNumerator < 0 && p.tmp.iDenominator < 0) {
+			if(GLY_STATE_NULL == wcode && p.tmp.iNumerator < 0 && p.tmp.iDenominator < 0) {
 				p.log.text = "";
-				++ p.ptr;
+				++ p.cmd.ptr;
 				continue;
 			}
-			if(GLY_STATE_PRINT == p.cmd.charCodeAt(p.ptr) && p.tmp.iNumerator < 0 && p.tmp.iDenominator < 0) {
-				++ p.ptr;
+			if(GLY_STATE_PRINT == wcode && p.tmp.iNumerator < 0 && p.tmp.iDenominator < 0) {
+				++ p.cmd.ptr;
 				p.log.text = p.remark.replace(/[\u2080-\u2089]/g,
 					function(str) {
 						var	index = str.charCodeAt(0) - 0x2080;
@@ -569,62 +626,75 @@ function	parse(p, cmd) {
 				).replace(/\xA7/g, (p.iMeasure < 0 ? "\xA7" : "" + p.iMeasure));
 				continue;
 			}
-			if(GLY_SHOW_DELAY == p.cmd.charCodeAt(p.ptr)) {
-				if(p.iNumerator < 0 && p.iDenominator < 0) {
-					p.movie.push({
-						measure	:{index: -1, row: -1},
-						delay	:(p.iDelay * p.iDelayMul / p.iDelayDiv),
-						leds	:[].concat(p.levels),
-						row	:p.iRow,
-						text	:p.log.text
-					});
-				} else {
-					if(p.iNumerator > 0 && p.iDenominator > 0)
-						p.iDelayMul = p.iNumerator,
-						p.iDelayDiv = p.iDenominator;
-					else
-					if(p.iNumerator > 0)
-						p.iDelay = p.iNumerator,
-						p.iDelayMul = 1,
-						p.iDelayDiv = 1;
-				}
-				++ p.ptr;
+			if(GLY_SETUP_MS == wcode) {
+				++ p.cmd.ptr;
+				if(p.iNumerator > 0 && p.iDenominator > 0)
+					p.iDelayMul = p.iNumerator,
+					p.iDelayDiv = p.iDenominator;
+				else
+				if(p.iNumerator > 0)
+					p.iDelay = p.iNumerator,
+					p.iDelayMul = 1,
+					p.iDelayDiv = 1;
+				else
+					p.iDelayMul = 1,
+					p.iDelayDiv = 1;
 				continue;
 			}
-			if('(' == p.cmd.charAt(p.ptr)) {
-				++ p.ptr;
+			if(GLY_SHOW_DELAY == wcode) {
+				p.movie.push({
+					measure	:{index: -1, row: -1},
+					delay	:p.iDelay * (p.iNumerator > 0 ? p.iNumerator * p.iDelayMul : p.iDelayMul) / (p.iDenominator > 0 ? p.iDenominator * p.iDelayDiv : p.iDelayDiv),
+					leds	:[].concat(p.levels),
+					row	:p.iRow,
+					text	:p.log.text
+				});
+				++ p.cmd.ptr;
+				continue;
+			}
+			if('(' == ascii) {
+				++ p.cmd.ptr;
 				if(p.iNumerator > 0 && p.iDenominator < 0) {
-					p.tmp.pReps.push(p.ptr);
+					p.tmp.pReps.push(p.cmd.ptr);
 					p.tmp.nReps.push(p.iNumerator);
 					continue;
 				}
 				break;
 			}
-			if(')' == p.cmd.charAt(p.ptr)) {
+			if(')' == ascii) {
 				if(p.tmp.nReps.length > 0) {
-					if(p.tmp.nReps[p.tmp.nReps.length - 1] -- > 1) {
-						p.ptr = p.tmp.pReps[p.tmp.pReps.length - 1];
+					if(-- p.tmp.nReps[p.tmp.nReps.length - 1] > 0) {
+						p.cmd.ptr = p.tmp.pReps[p.tmp.pReps.length - 1];
 						continue;
 					}
 					p.tmp.nReps.pop();
 					p.tmp.pReps.pop();
 				}
-				++ p.ptr;
+				++ p.cmd.ptr;
 				continue;
 			}
 			p.tmp.iKeyboard = p.iKeyboard;
 			if(play_effect(p, p)) {
 				p.iKeyboard = p.tmp.iKeyboard;
 			} else
-				++ p.ptr;
+				++ p.cmd.ptr;
 		}
 	});
 	clearTimeout(hTimer);
 	iDuration = 0;
 	iEstimated = 0;
+	for(var i in p.log.Measures) {
+		var rows = p.log.Measures[i];
+		for(var j in rows) {
+			if(!!rows[j]) {
+				++ iDuration;
+				alert("Error in paragraph#" + i + " row#" + j);
+			}
+		}
+	};
 	p.movie.forEach(function(iDelay) { iEstimated += +iDelay.delay; });
 	document.getElementById("Progress").textContent = "Halted";
-	if(iEstimated > 0)
+	if(iEstimated > 0 && iDuration == 0)
 		animate();
 }
 
@@ -673,42 +743,42 @@ function main() {
 		"0x003920E3:Define/append paragraph #9		Select paragraph #9",
 		"0x003620E3:Define/append paragraph #6		Select paragraph #6",
 		"0x003320E3:Define/append paragraph #3		Select paragraph #3",
-		"0x21E50009:Tabulation",
+		"0x002320E3:Define/append paragraph #		Select paragraph #",
 		"0x00000023:Sharp",
 		"0x00000033:Number @",
 		"0x00A70039:Define/append paragraph #9		Select paragraph #9",
 		"0x00A70036:Define/append paragraph #6		Select paragraph #6",
 		"0x00A70033:Define/append paragraph #3		Select paragraph #3",
 		"0x00A70028:Active paragraph settings - @(...)",
-		"0x00002077:^7",
-		"0x00002074:^4",
-		"0x000000B9:^1",
-		"0x00002070:^0",
+		"0x00002077:Iteration of basic cycle #7",
+		"0x00002074:Iteration of basic cycle #4",
+		"0x000000B9:Iteration of basic cycle #1",
+		"0x00002070:Index of basic row",
 		"0x00000024:Dollar",
 		"0x00000034:Number @",
-		"0x00002087:Iteration of cycle #7",
-		"0x00002084:Iteration of cycle #4",
-		"0x00002081:Iteration of cycle #1",
+		"0x00002087:Iteration of current cycle #7",
+		"0x00002084:Iteration of current cycle #4",
+		"0x00002081:Iteration of current cycle #1",
 		"0x00002080:Index of current row",
-		"0x00002078:^8",
-		"0x00002075:^5",
-		"0x000000B2:^2",
-		"0x00002316:Log status",
+		"0x00002078:Iteration of basic cycle #8",
+		"0x00002075:Iteration of basic cycle #5",
+		"0x000000B2:Iteration of basic cycle #2",
+		"0x21E50009:Tabulation",
 		"0x00000025:Percent",
 		"0x00000035:Number @",
-		"0x00002088:Iteration of cycle #8",
-		"0x00002085:Iteration of cycle #5",
-		"0x00002082:Iteration of cycle #2",
-		"0x000023F1:Reset to basic delay - 0@		Set basic delay(ms) - 1@ .. 99999@		Adjust current delay - \xBD@..99\xBC\xBD@",
-		"0x00002079:^9",
-		"0x00002076:^6",
-		"0x000000B3:^3",
+		"0x00002088:Iteration of current cycle #8",
+		"0x00002085:Iteration of current cycle #5",
+		"0x00002082:Iteration of current cycle #2",
+		"0x000023F1:Adjust current intervals and wait for interval - \xBD@..999\xBC\xBD@	Reset to default interval - 0@		Wait for interval - @",
+		"0x00002079:Iteration of basic cycle #9",
+		"0x00002076:Iteration of basic cycle #6",
+		"0x000000B3:Iteration of basic cycle #3",
 		"0x24090009:Tabulation",
 		"0x00000026:Ampersand",
 		"0x00000036:Number @",
-		"0x00002089:Iteration of cycle #9",
-		"0x00002086:Iteration of cycle #6",
-		"0x00002083:Iteration of cycle #3",
+		"0x00002089:Iteration of current cycle #9",
+		"0x00002086:Iteration of current cycle #6",
+		"0x00002083:Iteration of current cycle #3",
 		"0x000023F2:Timing				---",
 		"0x0000215E:7/8",
 		"0x000000BE:3/4",
@@ -756,7 +826,7 @@ function main() {
 		"0x0000267B:Set the LEDs refreshing frequency(Hz) - 1@ .. 1000@",
 		"0x000021E3:Fade out FX - @\u2878\u283F\u2887	Decrement the keyboard selector - @\u2328",
 		"0x000021E1:Fade in FX - @\u2878\u283F\u2887	Increment the keyboard selector - @\u2328",
-		"0x00000020:?",
+		"0x00003390:Set the LEDs refreshing frequency(Hz) - 1@ .. 1000@",
 		"0x00002635:Trigram FX #5 - Water		---",
 		"0x00002632:Trigram FX #2 - Fire		---",
 		"0x00002328:Select keyboard - 0@ .. 9@		Set keyboards order - 11@ .. 999999999@",
@@ -766,7 +836,7 @@ function main() {
 		"0x0000267A:Special FX				---",
 		"0x00002935:Go to next line in paragraph	Skip lines in paragraph - 1@ .. 999@",
 		"0x00002934:Go to previous line of paragraph	Back up to lines in paragraph - 1@ .. 999@",
-		"0x00000020:?",
+		"0x000033B3:Set the timer delaying interval(ms) - 1@ .. 10000@	Reset coefficients - 0@ / @	Change coefficients - \xBD@..9\xBC\xBD@",
 		"0x00002636:Trigram FX #6 - Mountain		---",
 		"0x00002633:Trigram FX #3 - Thunder		---",
 		"0x23CE000D:Enter"
@@ -776,10 +846,7 @@ function main() {
 	var	x, y, i, n, tmp;
 	for(y = 0; y < 10; ++ y) {
 		hRow = hTab.insertRow(y);
-//		if(y < 8)
-			n = Math.floor((9 - y + operators.length) / 10) + 8;
-//		else
-//			n = 8;
+		n = Math.floor((9 - y + operators.length) / 10) + 8;
 		for(x = 0; x < n; ++ x) {
 			hCell = hRow.insertCell(x);
 			hCell.className = "operator";
