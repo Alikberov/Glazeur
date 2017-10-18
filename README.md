@@ -8,13 +8,9 @@ The Windows simple console application for control up the indicators of all keyb
   
 Сигнатура | Краткое описание назначения и действия | Пример использования | Область действия¹
 --------- | -------------------------------------- | -------------------- | ----------------
-i⃣	| Активизация параграфа эффектов					| 0⃣ …9⃣			| Сценарий
 §i	| Активизация параграфа эффектов					| §0…§9			| Сценарий
 n§	| Выбор строки активного параграфа				| 0§…99§		| Сценарий/Параграф
 n§i	| Выбор строки с активизацией параграфа				| 99§0…45§6…0§9		| Сценарий
-i⌨	| Выборка базовой (первой слева) клавиатуры²			| 1⌨…9⌨			| Сценарий/Параграф
-n⌨	| Задание логического порядка клавиатур²			| 12⌨…987654321⌨	| Сценарий
-n㎐	| Задание частоты обновления индикаторов³			| 1㎐…1000㎐		| Сценарий/Параграф
 n㎳	| Установка базового интервала задержки сценария		| 1㎳…1000㎳		| Сценарий
 0㎳	| Сброс коэффициентов интервала задержки			| 0㎳			| Сценарий/Параграф
 n⁄d㎳	| Задание коэффициентов интервала задержки			| 2⅛㎳…3⅘⅞㎳		| Сценарий/Параграф
@@ -25,21 +21,30 @@ n⤵	| Переход строками ниже в активном парагр
 n(…)	| Организация зацикливания n-раз				| 1(↝)…99(↝⤵)		| Сценарий/Параграф
 §(…)	| Управление выбранным параграфом				| §(0⏱⅘⏱⤵)		| Сценарий
 ⠿	| Управление индикаторами клавиатуры				| 5(⠪⠝⏱⠿⠽⏱)		| Сценарий/Параграф
-⇡/⇣	| Управление яркостью⁴ активных индикаторов			| 10(⇣⠿⠿⠿⏱⇡⠿⠿⠿⏱)		| Сценарий/Параграф
-ⁿ	| Доступ к аргументу⁵ итерации вызываемого цикла		| Line #⁰ Lap #¹	| Строка отладки
-ᵢ	| Доступ к аргументу⁵ итерации текущей строки параграфа		| Line #₀ Lap #₁	| Строка отладки
-§	| Доступ к индексу⁵ активного параграфа				| Effect#§ Line #₀	| Строка отладки
-⎚/⎙	| Очистка/Печать⁵ строки форматированной отладки		| 10(⎙⏱⎚⏱)		| Сценарий/Параграф
+i⃣	| Определение «интерактивной метки»² сценария			| 0⃣ …9⃣			| Сценарий
+i⌨	| Выборка базовой (первой слева) клавиатуры³			| 1⌨…9⌨			| Сценарий/Параграф
+n⌨	| Задание логического порядка клавиатур³			| 12⌨…987654321⌨	| Сценарий
+n㎐	| Задание частоты обновления индикаторов⁴			| 1㎐…1000㎐		| Сценарий/Параграф
+n⁄d(…)	| Организация «дробного»⁵ зацикливания				| 1¾(…;…;…;…)		| Сценарий/Параграф
+⇡/⇣	| Управление яркостью⁶ активных индикаторов			| 10(⇣⠿⠿⠿⏱⇡⠿⠿⠿⏱)		| Сценарий/Параграф
+ⁿ	| Доступ к аргументу⁷ итерации вызываемого цикла		| Line #⁰ Lap #¹	| Строка отладки
+ᵢ	| Доступ к аргументу⁷ итерации текущей строки параграфа		| Line #₀ Lap #₁	| Строка отладки
+§	| Доступ к индексу⁷ активного параграфа				| Effect#§ Line #₀	| Строка отладки
+⎚/⎙	| Очистка/Печать⁷ строки форматированной отладки		| 10(⎙⏱⎚⏱)		| Сценарий/Параграф
 
 ¹- действие эффекта может несколько отличаться в параграфе и за его пределами
 
-²- игнорируется графической симуляцией, но имеет существенную необходимость для физических клавиатур
+²- клавишами цифровой части клавиатуры можно в реальном времени переключать «программу»
 
-³- игнорируется графической симуляцией, но управляет качеством индикации на физических клавиатурах
+³- игнорируется графической симуляцией, но имеет существенную необходимость для физических клавиатур
 
-⁴- не все модели клавиатур поддерживают ШИМ-алгоритм и могут иметь непредсказуемое моргание
+⁴- игнорируется графической симуляцией, но управляет качеством индикации на физических клавиатурах
 
-⁵- аргументы используются любой ремаркой, которая предшествует оператору печати отладочной информации
+⁵- операторы цикла разделяются символом «;» и заключающей итерацией игнорируются выпадающие за индекс числителя
+
+⁶- не все модели клавиатур поддерживают ШИМ-алгоритм и могут иметь непредсказуемое моргание
+
+⁷- аргументы используются любой ремаркой, которая предшествует оператору печати отладочной информации
 </details>
 
 <details>
@@ -47,13 +52,9 @@ n(…)	| Организация зацикливания n-раз				| 1(↝)…
   
 Signature | Common description for signature action | Variant using sample | Using restriction¹
 --------- | --------------------------------------- | -------------------- | ------------------
-i⃣	| Select active paragraph with effects				| 0⃣ …9⃣			| Scenario
 §i	| Select active paragraph with effects				| §0…§9			| Scenario
 n§	| Select effects row in active paragraph			| 0§…99§		| Scenario/Paragraph
 n§i	| Select active paragraph with row				| 99§0…45§6…0§9		| Scenario
-i⌨	| Select for basic (left-side) keyboard²			| 1⌨…9⌨			| Scenario/Paragraph
-n⌨	| Set up the logic order for keyboards²				| 12⌨…987654321⌨	| Scenario
-n㎐	| Set up the indicators refresh frequency³			| 1㎐…1000㎐		| Scenario/Paragraph
 n㎳	| Set up the basic delay interval				| 1㎳…1000㎳		| Scenario
 0㎳	| Reset the delay coefficients					| 0㎳			| Scenario/Paragraph
 n⁄d㎳	| Define the delay coefficient					| 2⅛㎳…3⅘⅞㎳		| Scenario/Paragraph
@@ -64,21 +65,30 @@ n⤵	| Go to next row in active paragraph				| ⤵…1⤵…99⤵		| Scenario/Pa
 n(…)	| Set looping for n-times					| 1(↝)…99(↝⤵)		| Scenario/Paragraph
 §(…)	| Particulary run in active paragraph				| §(0⏱⅘⏱⤵)		| Scenario
 ⠿	| Draw over the keyboards indicators				| 5(⠪⠝⏱⠿⠽⏱)		| Scenario/Paragraph
-⇡/⇣	| The bright modulation⁴ control of indicators			| 10(⇣⠿⠿⠿⏱⇡⠿⠿⠿⏱)		| Scenario/Paragraph
-ⁿ	| Using of iteration argument⁵ of parent row cycle		| Line #⁰ Lap #¹	| Debugging string
-ᵢ	| Using of iteration argument⁵ of current row cycle		| Line #₀ Lap #₁	| Debugging string
-§	| Using of active paragraph index⁵				| Effect#§ Line #₀	| Debugging string
-⎚/⎙	| Clear/Print⁵ the formated logging string			| 10(⎙⏱⎚⏱)		| Scenario/Paragraph
+i⃣	| Define the «interactive label»² in scenario			| 0⃣ …9⃣			| Scenario
+i⌨	| Select for basic (left-side) keyboard³			| 1⌨…9⌨			| Scenario/Paragraph
+n⌨	| Set up the logic order for keyboards³				| 12⌨…987654321⌨	| Scenario
+n㎐	| Set up the indicators refresh frequency⁴			| 1㎐…1000㎐		| Scenario/Paragraph
+n⁄d(…)	| Set «fractional»⁵ looping					| 1¾(…;…;…;…)		| Scenario/Paragraph
+⇡/⇣	| The bright modulation⁶ control of indicators			| 10(⇣⠿⠿⠿⏱⇡⠿⠿⠿⏱)		| Scenario/Paragraph
+ⁿ	| Using of iteration argument⁷ of parent row cycle		| Line #⁰ Lap #¹	| Debugging string
+ᵢ	| Using of iteration argument⁷ of current row cycle		| Line #₀ Lap #₁	| Debugging string
+§	| Using of active paragraph index⁷				| Effect#§ Line #₀	| Debugging string
+⎚/⎙	| Clear/Print⁷ the formated logging string			| 10(⎙⏱⎚⏱)		| Scenario/Paragraph
 
 ¹- the action can have a differences inside or outside the paragraphs
 
-²- ignoring by online web-simulation, but strongly required in console utility
+²- the linear parsing can be controlled by numbers key of keyboard
 
-³- ignoring by online web-simulation, but controling for indication fidelity 
+³- ignoring by online web-simulation, but strongly required in console utility
 
-⁴- not all keyboards devices supports for Pulse-Width Modulation then can show noise
+⁴- ignoring by online web-simulation, but controling for indication fidelity 
 
-⁵- any previous line remark or commentary using as output format
+⁵- the cycle inside operations separated by «;» for ignoring by numerator range
+
+⁶- not all keyboards devices supports for Pulse-Width Modulation then can show noise
+
+⁷- any previous line remark or commentary using as output format
 </details>
 
 ## Samples / Примеры
