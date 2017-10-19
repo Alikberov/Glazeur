@@ -8,13 +8,36 @@
 <meta content='NoIndex,NoArchive'					name='Robots'	 />
 <meta content='http://github.com/Alikberov'				name='Author'	 />
 <meta description='Glazeur-Scenarist'							 />
-<meta http-equiv=refresh content='900'>							 />
 <title>Glazeur-scripting</title>
 <style>
+a	{
+	border		:blue thin outset;
+}
 pre#leds{
 	background-color:grey;
 }
 td.operator	{
+	border		:white thin outset;
+	cursor		:pointer;
+	font-family	:"Segoe UI Emoji";
+	font-size	:28px;
+}
+td.switch_1	{
+	background-color:yellow;
+	border		:white thin outset;
+	cursor		:pointer;
+	font-family	:"Segoe UI Emoji";
+	font-size	:28px;
+}
+td.switch_2	{
+	background-color:cyan;
+	border		:white thin outset;
+	cursor		:pointer;
+	font-family	:"Segoe UI Emoji";
+	font-size	:28px;
+}
+td.switch_3	{
+	background-color:magenta;
 	border		:white thin outset;
 	cursor		:pointer;
 	font-family	:"Segoe UI Emoji";
@@ -75,7 +98,8 @@ var	LEDs	= {
 			iNumerator	:0,
 			iDenominator	:0,
 			pReps		:[],
-			nReps		:[]
+			nReps		:[],
+			dReps		:[]
 			},
 		Measures: [],
 		iMeasure: -1,
@@ -83,13 +107,16 @@ var	LEDs	= {
 		ptr	: 0,
 		iRow	: 0,
 		remark	: "",
+		dots	: "",
 		log	: {
 			text: "",
 			Measures: []
 		}
 	};
 var	url;
-var	hTimer;
+var	hTimer, hEraser;
+var	hTabs		= [];
+var	iTabs		= 0;
 var	iEstimated	= 1,
 	iDuration	= 1;
 ////////////////////////////////////////////////////////////////////////////////
@@ -97,7 +124,7 @@ var	GLY_TABULATION		= 0x0009,	// [->]	Tabulation key
 	GLY_TABULATIONS		= 0x2409,	// [HT]	Tabulation signature
 	GLY_TABULATIONG		= 0x21E5;	// ->|	Tabulation glyph
 ////////////////////////////////////////////////////////////////////////////////
-var	GLY_MEASURE		= 0x00A7,	//	§	Measure
+var	GLY_MEASURE		= 0x00A7,	//	В§	Measure
 	GLY_MEASURE_SET		= 0x20E3,	// [ ]	Set measure
 	GLY_FADE_IN		= 0x21E1,	// /|\	Fade in effect
 	GLY_FADE_OUT		= 0x21E3,	// \|/	Fade out effect
@@ -112,7 +139,12 @@ var	GLY_MEASURE		= 0x00A7,	//	§	Measure
 	GLY_STATE_STOP		= 0x26D4,	// (=)	Stop/Halt
 	GLY_MEASURE_UP		= 0x2934,	// /\	Measure prev. line
 	GLY_MEASURE_DWN		= 0x2935,	// \/	Measure next line
-	GLY_MEASURE_RUN		= 0x219D,	// ->	Measure line run
+	GLY_MEASURE_RUN		= 0x27B0,	// _o_	Measure line run
+	//
+	GLY_RUN_UP		= 0x25B2;	// [^]	Run LEDs to up
+	GLY_RUN_RIGHT		= 0x25B6;	// [>]	Run LEDs to right
+	GLY_RUN_DOWN		= 0x25BC;	// [v]	Run LEDs to down
+	GLY_RUN_LEFT		= 0x25C0;	// [<]	Run LEDs to left
 	//
 	GLY_STATE_LOG		= 0x2316,	// -*-	Logging the status
 	GLY_STATE_PRINT		= 0x2399,	// [~]	Print the status
@@ -176,7 +208,7 @@ function parse_fraction(p) {
 		0x21580405,	//	4/5	0.8
 		0x215A0506,	//	5/6	0.833
 		0x215E0708,	//	7/8	0.875
-		0x21890003,	//	0/3
+		0x21890003	//	0/3
 	],	i, wcode;
 	if(p.cmd.c_ptr > '0' && p.cmd.c_ptr <= '9') {
 		p.tmp.iNumerator = 0;
@@ -191,6 +223,15 @@ function parse_fraction(p) {
 		p.tmp.iNumerator = -1;
 	p.tmp.iDenominator = -1;
 	wcode = p.cmd.a_ptr;
+	i = 10000;
+	if(p.tmp.iNumerator > 0)
+		switch(wcode) {
+		case 0x25:	i /= 10;
+		case 0x2030:	i /= 10;
+		case 0x2031:	p.tmp.iDenominator = i;
+				p.cmd.ptr ++;
+				return p;
+		}		
 	do {
 		i = iFractions.length;
 		while(i --) {
@@ -200,7 +241,7 @@ function parse_fraction(p) {
 					p.tmp.iNumerator = (n >> 8) & 255;
 				else
 				if(p.tmp.iDenominator < 1)
-					p.tmp.iNumerator *= n & 255;
+					p.tmp.iNumerator = p.tmp.iNumerator * (n & 255) + ((n >> 8) & 255);
 				else
 					p.tmp.iNumerator *= (n >> 8) & 255;
 				if(p.tmp.iDenominator < 1)
@@ -217,10 +258,9 @@ function parse_fraction(p) {
 				break;
 			}
 		}
-	} while(i >= 0);
+	} while(i >= 0);	//console.log("(" + p.tmp.iNumerator + "/" + p.tmp.iDenominator + ") == " + Math.floor(p.tmp.iNumerator / p.tmp.iDenominator) + "(" + (p.tmp.iNumerator % p.tmp.iDenominator) + "/" + p.tmp.iDenominator + ")");
 	return p;
 }
-
 function play_effect(p, pp) {
 	var	mode = 0,
 		code,
@@ -241,6 +281,10 @@ function play_effect(p, pp) {
 		if(index < 1 || index > 9)
 			return false;
 		while(code >= 0x2800 && code <= 0x28FF) {
+			if(code == 0x28C0) {
+				code = pp.dots.charCodeAt(0);
+				pp.dots = pp.dots.substr(1);
+			}
 			code &= 255;
 			switch(mode) {
 			case GLY_FADE_IN:
@@ -293,6 +337,42 @@ function play_effect(p, pp) {
 		p.cmd.ptr ++;
 		return true;
 	}
+	if(GLY_RUN_UP == code && p.tmp.iNumerator < 0) {
+		p.cmd.ptr ++;
+		for(index = 1; index <= 9; ++ index) {
+			code = pp.levels[index];
+			pp.levels[index] = (code & 030000000000) | ((code & 006666666666) >> 1) | ((code & 001111111111) << 2);
+		}
+		return true;
+	}
+	if(GLY_RUN_RIGHT == code && p.tmp.iNumerator < 0) {
+		p.cmd.ptr ++;
+		index = 9;
+		code = pp.levels[index];
+		while(index > 1)
+			pp.levels[index] = pp.levels[index - 1],
+			index --;
+		pp.levels[index] = code;
+		return true;
+	}
+	if(GLY_RUN_DOWN == code && p.tmp.iNumerator < 0) {
+		p.cmd.ptr ++;
+		for(index = 1; index <= 9; ++ index) {
+			code = pp.levels[index];
+			pp.levels[index] = (code & 030000000000) | ((code & 004444444444) >> 2) | ((code & 003333333333) << 1);
+		}
+		return true;
+	}
+	if(GLY_RUN_LEFT == code && p.tmp.iNumerator < 0) {
+		p.cmd.ptr ++;
+		index = 1;
+		code = pp.levels[index];
+		while(index < 9)
+			pp.levels[index] = pp.levels[index + 1],
+			index ++;
+		pp.levels[index] = code;
+		return true;
+	}
 	return false;
 }
 
@@ -329,11 +409,11 @@ function	parse_measure_rows(p, row) {
 	};
 	return rows;
 }
-
 function	parse_measure(p, iMeasure, ptr) {
 	var	pm	= p.Measures[iMeasure];
 	var	preps	= [];
 	var	nreps	= [];
+	var	dreps	= [];
 	var	nlaps	= -1;
 	var	iRow;
 	var	nTabs	= 0;
@@ -436,6 +516,29 @@ function	parse_measure(p, iMeasure, ptr) {
 			++ pm.cmd.ptr;
 			continue;
 		}
+		if(';' == ascii) {
+			++ pm.cmd.ptr;
+			if(ptr >= 0) {
+				p.cmd.ptr = pm.cmd.ptr;
+				return;
+			}
+			if(nreps.length > 0) {
+				tmp = nreps[nreps.length - 1];
+				if(tmp > dreps[dreps.length - 1])
+					continue;
+				-- nreps[nreps.length - 1];
+				if(tmp > 1)
+					continue;
+				tmp = 0;
+				do {
+					ascii = pm.cmd.c_pp_ptr;
+					if('(' == ascii)
+						++ tmp;
+					if(')' == ascii)
+						-- tmp;
+				} while(ascii != '' && tmp >= 0);
+			}
+		}
 		if(')' == ascii) {
 			if(ptr >= 0) {
 				p.cmd.ptr = ++ pm.cmd.ptr;
@@ -473,7 +576,6 @@ function	animate() {
 		var	i, sPrg, iPrg;
 		ShowLEDs(LEDs, q);
 		hTimer = setTimeout("animate()", q.delay);
-		iDuration += q.delay;
 		iPrg = Math.floor(iDuration * 100 / iEstimated);
 		sPrg = "";
 		for(i = 0; i < iPrg; i += 2)
@@ -483,9 +585,12 @@ function	animate() {
 			sPrg += "\u2591",
 			i += 2;
 		hPrg.textContent = sPrg;
+		iDuration += q.delay;
 	} else
-	if(iEstimated > 1)
+	if(iEstimated > 1) {
 		hPrg.textContent = "Completed! Click for share this scenario.";
+		ShowLEDs(LEDs);
+	}
 }
 
 function	parse(p, cmd) {
@@ -541,6 +646,7 @@ function	parse(p, cmd) {
 	p.iDelayDiv = 1;
 	p.iRow = 0;
 	p.remark = "";
+	p.dots = ""
 	p.Scenario//.split(/\r?\n/)
 	.forEach(function(str) {
 		p.cmd = new WCHAR(str);
@@ -548,8 +654,12 @@ function	parse(p, cmd) {
 		p.log.text = "";
 		p.tmp.pReps = [];
 		p.tmp.nReps = [];
+		p.tmp.dReps = [];
 		if(!GLYC_TAB(p.cmd.a_ptr_pp)) {
-			p.remark = str;
+			if(str.charCodeAt(0) == 0x28C0)
+				p.dots = str.substr(1);
+			else
+				p.remark = str;
 			return;
 		}
 		while(GLYC_TAB(p.cmd.a_ptr))
@@ -619,8 +729,13 @@ function	parse(p, cmd) {
 				p.log.text = p.remark.replace(/[\u2080-\u2089]/g,
 					function(str) {
 						var	index = str.charCodeAt(0) - 0x2080;
-						if(index > 0)
-							return p.tmp.nReps.length >= index ? p.tmp.nReps[p.tmp.nReps.length - index] : "?";
+						if(index > 0) {
+							if(p.tmp.nReps.length < index)
+								return "?";
+							if(p.tmp.dReps[p.tmp.dReps.length - index] < 1)
+								return "" + p.tmp.nReps[p.tmp.nReps.length - index];
+							return "" + (Math.floor(p.tmp.nReps[p.tmp.nReps.length - index] / p.tmp.dReps[p.tmp.dReps.length - index]));
+						}
 						return "" + p.iRow;
 					}
 				).replace(/\xA7/g, (p.iMeasure < 0 ? "\xA7" : "" + p.iMeasure));
@@ -654,21 +769,49 @@ function	parse(p, cmd) {
 			}
 			if('(' == ascii) {
 				++ p.cmd.ptr;
-				if(p.iNumerator > 0 && p.iDenominator < 0) {
+				if(p.iNumerator > 0) {
 					p.tmp.pReps.push(p.cmd.ptr);
 					p.tmp.nReps.push(p.iNumerator);
+					p.tmp.dReps.push(p.iDenominator);
 					continue;
 				}
 				break;
 			}
-			if(')' == ascii) {
+			if(';' == ascii) {
+				++ p.cmd.ptr;
 				if(p.tmp.nReps.length > 0) {
+					tmp = p.tmp.nReps[p.tmp.nReps.length - 1];
+					if(tmp > p.tmp.dReps[p.tmp.dReps.length - 1])
+						continue;
+					-- p.tmp.nReps[p.tmp.nReps.length - 1];
+					if(tmp > 1)
+						continue;
+					tmp = 0;
+					do {
+						ascii = p.cmd.c_pp_ptr;
+						if('(' == ascii)
+							++ tmp;
+						if(')' == ascii)
+							-- tmp;
+					} while(ascii != '' && tmp >= 0);
+				}
+			}
+			if(')' == ascii) {
+				if(p.tmp.nReps.length > 0) {// 2 1/3 >> 7/3 1#4/3 2#1/3
+					tmp = p.tmp.dReps[p.tmp.dReps.length - 1];
+					if(tmp > 0) {
+						if((p.tmp.nReps[p.tmp.nReps.length - 1] -= tmp) > 0) {
+							p.cmd.ptr = p.tmp.pReps[p.tmp.pReps.length - 1];
+							continue;
+						}
+					} else
 					if(-- p.tmp.nReps[p.tmp.nReps.length - 1] > 0) {
 						p.cmd.ptr = p.tmp.pReps[p.tmp.pReps.length - 1];
 						continue;
 					}
 					p.tmp.nReps.pop();
 					p.tmp.pReps.pop();
+					p.tmp.dReps.pop();
 				}
 				++ p.cmd.ptr;
 				continue;
@@ -717,161 +860,309 @@ function insertAtCursor(hText, szChar) {
 	} else
 		hText.value += szChar;
 }
+function insertOperator(e) {
+	if(e.target && (e.target.nodeName == "TD" || e.target.nodeName == "SPAN")) {
+		insertAtCursor(document.getElementById("Scenario"), e.target.textContent.replace(/\u23CE\r/g, "\r\n"));
+		document.getElementById("Scenario").focus();
+	}
+}
+function hidingTable(e) {
+	hEraser = setTimeout(function() {
+		hTabs[iTabs].style.display = "none";
+		iTabs = 0;
+		hTabs[iTabs].style.display = "block";
+	}, 500);
+}
+function holdingTable(e) {
+	clearTimeout(hEraser);
+	hEraser = 0;
+}
 
 function main() {
-	var	operators = [
-		"0x003720E3:Define/append paragraph #7		Select paragraph #7",
-		"0x003420E3:Define/append paragraph #4		Select paragraph #4",
-		"0x003120E3:Define/append paragraph #1		Select paragraph #1",
-		"0x003020E3:Define/append paragraph #0		Select paragraph #0",
-		"0x00000021:Exclamation",
-		"0x00000031:Number @",
-		"0x00A70037:Define/append paragraph #7		Select paragraph #7",
-		"0x00A70034:Define/append paragraph #4		Select paragraph #4",
-		"0x00A70031:Define/append paragraph #1		Select paragraph #1",
-		"0x00A70030:Define/append paragraph #0		Select paragraph #0",
-		"0x003820E3:Define/append paragraph #8		Select paragraph #8",
-		"0x003520E3:Define/append paragraph #5		Select paragraph #5",
-		"0x003220E3:Define/append paragraph #2		Select paragraph #2",
-		"0x0000219D:Replay line of paragraph",
-		"0x00000022:Quote",
-		"0x00000032:Number @",
-		"0x00A70038:Define/append paragraph #8		Select paragraph #8",
-		"0x00A70035:Define/append paragraph #5		Select paragraph #5",
-		"0x00A70032:Define/append paragraph #2		Select paragraph #2",
-		"0x000000A7:Define/append paragraph - @0 .. @9	Select paragraph - @0 .. @9		Switch to paragraph row - 0@ .. 999@",
-		"0x003920E3:Define/append paragraph #9		Select paragraph #9",
-		"0x003620E3:Define/append paragraph #6		Select paragraph #6",
-		"0x003320E3:Define/append paragraph #3		Select paragraph #3",
-		"0x002320E3:Define/append paragraph #		Select paragraph #",
-		"0x00000023:Sharp",
-		"0x00000033:Number @",
-		"0x00A70039:Define/append paragraph #9		Select paragraph #9",
-		"0x00A70036:Define/append paragraph #6		Select paragraph #6",
-		"0x00A70033:Define/append paragraph #3		Select paragraph #3",
-		"0x00A70028:Active paragraph settings - @(...)",
-		"0x00002077:Iteration of basic cycle #7",
-		"0x00002074:Iteration of basic cycle #4",
-		"0x000000B9:Iteration of basic cycle #1",
-		"0x00002070:Index of basic row",
-		"0x00000024:Dollar",
-		"0x00000034:Number @",
-		"0x00002087:Iteration of current cycle #7",
-		"0x00002084:Iteration of current cycle #4",
-		"0x00002081:Iteration of current cycle #1",
-		"0x00002080:Index of current row",
-		"0x00002078:Iteration of basic cycle #8",
-		"0x00002075:Iteration of basic cycle #5",
-		"0x000000B2:Iteration of basic cycle #2",
-		"0x21E50009:Tabulation",
-		"0x00000025:Percent",
-		"0x00000035:Number @",
-		"0x00002088:Iteration of current cycle #8",
-		"0x00002085:Iteration of current cycle #5",
-		"0x00002082:Iteration of current cycle #2",
-		"0x000023F1:Adjust current intervals and wait for interval - \xBD@..999\xBC\xBD@	Reset to default interval - 0@		Wait for interval - @",
-		"0x00002079:Iteration of basic cycle #9",
-		"0x00002076:Iteration of basic cycle #6",
-		"0x000000B3:Iteration of basic cycle #3",
-		"0x24090009:Tabulation",
-		"0x00000026:Ampersand",
-		"0x00000036:Number @",
-		"0x00002089:Iteration of current cycle #9",
-		"0x00002086:Iteration of current cycle #6",
-		"0x00002083:Iteration of current cycle #3",
-		"0x000023F2:Timing				---",
-		"0x0000215E:7/8",
-		"0x000000BE:3/4",
-		"0x00002156:2/5",
-		"0x00000020:?",
-		"0x00000027:Apostrophe",
-		"0x00000037:Number @",
-		"0x00002150:1/7",
-		"0x000000BC:1/4",
-		"0x00000020:?",
-		"0x00002152:1/10",
-		"0x0000215D:5/8",
-		"0x00002158:4/5",
-		"0x00002154:2/3",
-		"0x00002397:Push history			--- comming soon",
-		"0x00000028:Open the bracket			Loop for n-times - 1(...) .. 999(...)",
-		"0x00000038:Number @",
-		"0x0000215B:1/8",
-		"0x00002155:1/5",
-		"0x000000BD:1/2",
-		"0x00002399:Show status",
-		"0x00002157:3/5",
-		"0x0000215A:5/6",
-		"0x0000215C:3/8",
-		"0x00002398:Pop history				--- comming soon",
-		"0x00000029:Closing bracket",
-		"0x00000039:Number @",
-		"0x00002151:1/9",
-		"0x00002159:1/6",
-		"0x00002153:1/3",
-		"0x0000239A:Clear",
-		"0x00002679:Special FX #7			---",
-		"0x00002676:Special FX #4			---",
-		"0x00002673:Special FX #1			---",
-		"0x00002672:Special FX #0			---",
-		"0x00000020:Space",
-		"0x00000030:Number @",
-		"0x00002637:Trigram FX #7 - Earth		---",
-		"0x00002634:Trigram FX #4 - Wind		---",
-		"0x00002631:Trigram FX #1 - Lake		---",
-		"0x00002630:Trigram FX #0 - Heaven		---",
-		"0x0000267A:Special FX				---",
-		"0x00002677:Special FX #5			---",
-		"0x00002674:Special FX #2			---",
-		"0x0000267B:Set the LEDs refreshing frequency(Hz) - 1@ .. 1000@",
-		"0x000021E3:Fade out FX - @\u2878\u283F\u2887	Decrement the keyboard selector - @\u2328",
-		"0x000021E1:Fade in FX - @\u2878\u283F\u2887	Increment the keyboard selector - @\u2328",
-		"0x00003390:Set the LEDs refreshing frequency(Hz) - 1@ .. 1000@",
-		"0x00002635:Trigram FX #5 - Water		---",
-		"0x00002632:Trigram FX #2 - Fire		---",
-		"0x00002328:Select keyboard - 0@ .. 9@		Set keyboards order - 11@ .. 999999999@",
-		"0x0000267D:Special FX				---",
-		"0x00002678:Special FX #6			---",
-		"0x00002675:Special FX #3			---",
-		"0x0000267A:Special FX				---",
-		"0x00002935:Go to next line in paragraph	Skip lines in paragraph - 1@ .. 999@",
-		"0x00002934:Go to previous line of paragraph	Back up to lines in paragraph - 1@ .. 999@",
-		"0x000033B3:Set the timer delaying interval(ms) - 1@ .. 10000@	Reset coefficients - 0@ / @	Change coefficients - \xBD@..9\xBC\xBD@",
-		"0x00002636:Trigram FX #6 - Mountain		---",
-		"0x00002633:Trigram FX #3 - Thunder		---",
-		"0x23CE000D:Enter"
-		];
-	var	hTab = document.getElementById("Operators");
-	var	hRow, hCell;
-	var	x, y, i, n, tmp;
-	for(y = 0; y < 10; ++ y) {
-		hRow = hTab.insertRow(y);
-		n = Math.floor((9 - y + operators.length) / 10) + 8;
-		for(x = 0; x < n; ++ x) {
-			hCell = hRow.insertCell(x);
+	var	layouts = [
+		[
+			"0x00002077:Iteration of basic cycle #7",
+			"0x00002078:Iteration of basic cycle #8",
+			"0x00002079:Iteration of basic cycle #9",
+			"0x00000037:Number @",
+			"0x00000038:Number @",
+			"0x00000039:Number @",
+			"0x00002087:Iteration of current cycle #7",
+			"0x00002088:Iteration of current cycle #8",
+			"0x00002089:Iteration of current cycle #9",
+			"0x00002074:Iteration of basic cycle #4",
+			"0x00002075:Iteration of basic cycle #5",
+			"0x00002076:Iteration of basic cycle #6",
+			"0x00000034:Number @",
+			"0x00000035:Number @",
+			"0x00000036:Number @",
+			"0x00002084:Iteration of current cycle #4",
+			"0x00002085:Iteration of current cycle #5",
+			"0x00002086:Iteration of current cycle #6",
+			"0x000000B9:Iteration of basic cycle #1",
+			"0x000000B2:Iteration of basic cycle #2",
+			"0x000000B3:Iteration of basic cycle #3",
+			"0x00000031:Number @",
+			"0x00000032:Number @",
+			"0x00000033:Number @",
+			"0x00002081:Iteration of current cycle #1",
+			"0x00002082:Iteration of current cycle #2",
+			"0x00002083:Iteration of current cycle #3",
+			"0x00002070:Index of basic row",
+			"0x0000239A:Clear status",
+			"0x000023F1:Adjust current intervals and wait for interval - \xBD@..999\xBC\xBD@	Reset to default interval - 0@		Wait for interval - @",
+			"0x00000030:Number @",
+			"0x00000028:Open the bracket			Loop for n-times - 1(...) .. 999(...)",
+			"0x00000029:Closing bracket",
+			"0x00002080:Index of current row",
+			"0x00002399:Show status",
+			"0x24090009:Tabulation",
+			"0x21E50009:Tabulation",
+			"0x0003267D:Special FX				---",
+			"0x000023F2:Timing				---",
+			"0x000033B3:Set the timer delaying interval(ms) - 1@ .. 10000@	Reset coefficients - 0@ / @	Change coefficients - \xBD@..9\xBC\xBD@",
+			"0x00022318:Operators",
+			"0x00002397:Push history			--- comming soon",
+			"0x00002398:Pop history				--- comming soon",
+			"0x0001283F:Dots",
+			"0x23CE000D:Enter",
+			"0x0000215E:7/8",
+			"0x0000215D:5/8",
+			"0x00002157:3/5",
+			"0x00A70037:Define/append paragraph #7		Select paragraph #7",
+			"0x00A70038:Define/append paragraph #8		Select paragraph #8",
+			"0x00A70039:Define/append paragraph #9		Select paragraph #9",
+			"0x00002150:1/7",
+			"0x0000215B:1/8",
+			"0x00002151:1/9",
+			"0x000000BE:3/4",
+			"0x00002158:4/5",
+			"0x0000215A:5/6",
+			"0x00A70034:Define/append paragraph #4		Select paragraph #4",
+			"0x00A70035:Define/append paragraph #5		Select paragraph #5",
+			"0x00A70036:Define/append paragraph #6		Select paragraph #6",
+			"0x000000BC:1/4",
+			"0x00002155:1/5",
+			"0x00002159:1/6",
+			"0x00002156:2/5",
+			"0x00002154:2/3",
+			"0x0000215C:3/8",
+			"0x00A70031:Define/append paragraph #1		Select paragraph #1",
+			"0x00A70032:Define/append paragraph #2		Select paragraph #2",
+			"0x00A70033:Define/append paragraph #3		Select paragraph #3",
+			"0x00002152:1/10",
+			"0x000000BD:1/2",
+			"0x00002153:1/3",
+			"0x000027B0:Replay line of paragraph",
+			"0x000026A0:Alert",
+			"0x000026D4:Halt",
+			"0x00A70030:Define/append paragraph #0		Select paragraph #0",
+			"0x000000A7:Define/append paragraph - @0 .. @9	Select paragraph - @0 .. @9		Switch to paragraph row - 0@ .. 999@",
+			"0x00A70028:Active paragraph settings - @(...)",
+			"0x00000025:percent",
+			"0x00002030:per mille",
+			"0x00002031:per 10 milles"
+		],	[
+		],	[
+			"0x0000246A:Sub-label 11",
+			"0x0000246B:Sub-label 12",
+			"0x0000246C:Sub-label 13",
+			"0x0000246D:Sub-label 14",
+			"0x0000246E:Sub-label 15",
+			"0x0000246F:Sub-label 16",
+			"0x00002470:Sub-label 17",
+			"0x00002471:Sub-label 18",
+			"0x00002472:Sub-label 19",
+			"0x00002473:Sub-label 20",
+			"0x00002460:Sub-label 1",
+			"0x00002461:Sub-label 2",
+			"0x00002462:Sub-label 3",
+			"0x00002463:Sub-label 4",
+			"0x00002464:Sub-label 5",
+			"0x00002465:Sub-label 6",
+			"0x00002466:Sub-label 7",
+			"0x00002467:Sub-label 8",
+			"0x00002468:Sub-label 9",
+			"0x00002469:Sub-label 10",
+			"0x000024C6:Label Q",
+			"0x000024CC:Label W",
+			"0x000024BA:Label E",
+			"0x000024C7:Label R",
+			"0x000024C9:Label T",
+			"0x000024CE:Label Y",
+			"0x000024CA:Label U",
+			"0x000024BE:Label I",
+			"0x000024C4:Label O",
+			"0x000024C5:Label P",
+			"0x000024B6:Label A",
+			"0x000024C8:Label S",
+			"0x000024B9:Label D",
+			"0x000024BB:Label F",
+			"0x000024BC:Label G",
+			"0x000024BD:Label H",
+			"0x000024BF:Label J",
+			"0x000024C0:Label K",
+			"0x000024C1:Label L",
+			"0x00000020:",
+			"0x00000020:",
+			"0x000024CF:Label Z",
+			"0x000024CD:Label X",
+			"0x000024B8:Label C",
+			"0x000024CB:Label V",
+			"0x000024B7:Label B",
+			"0x000024C3:Label N",
+			"0x000024C2:Label M",
+			"0x00000020:",
+			"0x00000020:",
+			"0x0000248E:Dotted key 7",
+			"0x0000248F:Dotted key 8",
+			"0x00002490:Dotted key 9",
+			"0x00002498:Dotted key 17",
+			"0x00002499:Dotted key 18",
+			"0x0000249A:Dotted key 19",
+			"0x00000020:",
+			"0x003720E3:Number key 7",
+			"0x003820E3:Number key 8",
+			"0x003920E3:Number key 9",
+			"0x0000248B:Dotted key 4",
+			"0x0000248C:Dotted key 5",
+			"0x0000248D:Dotted key 6",
+			"0x00002495:Dotted key 14",
+			"0x00002496:Dotted key 15",
+			"0x00002497:Dotted key 16",
+			"0x00000020:",
+			"0x003420E3:Number key 4",
+			"0x003520E3:Number key 5",
+			"0x003620E3:Number key 6",
+			"0x00002488:Dotted key 1",
+			"0x00002489:Dotted key 2",
+			"0x0000248A:Dotted key 3",
+			"0x00002492:Dotted key 11",
+			"0x00002493:Dotted key 12",
+			"0x00002494:Dotted key 13",
+			"0x00000020:",
+			"0x003120E3:Number key 1",
+			"0x003220E3:Number key 2",
+			"0x003320E3:Number key 3",
+			"0x00000020:",
+			"0x00000020:",
+			"0x00000020:",
+			"0x00002491:Dotted key 10",
+			"0x00000020:",
+			"0x00000020:",
+			"0x00000020:",
+			"0x003020E3:Number key 0",
+			"0x00000020:",
+			"0x00000020:",
+		],	[
+			"0x00002679:Special FX #7			---",
+			"0x0000267A:Special FX +			---",
+			"0x0000267D:Special FX ++			---",
+			"0x00002676:Special FX #4			---",
+			"0x00002677:Special FX #5			---",
+			"0x00002678:Special FX #6			---",
+			"0x00002673:Special FX #1			---",
+			"0x00002674:Special FX #2			---",
+			"0x00002675:Special FX #3			---",
+			"0x00002672:Special FX #0			---",
+			"0x0000267A:Special FX				---",
+			"0x0000267B:Special FX+++			---",
+			"0x00002637:Trigram FX #7 - Earth		---",
+			"0x000021E3:Fade out FX - @\u2878\u283F\u2887	Decrement the keyboard selector - @\u2328",
+			"0x000021E1:Fade in FX - @\u2878\u283F\u2887	Increment the keyboard selector - @\u2328",
+			"0x00002634:Trigram FX #4 - Wind		---",
+			"0x00002635:Trigram FX #5 - Water		---",
+			"0x00002636:Trigram FX #6 - Mountain		---",
+			"0x00002631:Trigram FX #1 - Lake		---",
+			"0x00002632:Trigram FX #2 - Fire		---",
+			"0x00002633:Trigram FX #3 - Thunder		---",
+			"0x00002630:Trigram FX #0 - Heaven		---",
+			"0x000025B2:Scroll up",
+			"0x000025B6:Scroll right",
+			"0x00003390:Set the LEDs refreshing frequency(Hz) - 1@ .. 1000@",
+			"0x000025C0:Scroll left",
+			"0x000025BC:Scroll down",
+			"0x00002935:Go to next line in paragraph	Skip lines in paragraph - 1@ .. 999@",
+			"0x00002328:Select keyboard - 0@ .. 9@		Set keyboards order - 11@ .. 999999999@",
+			"0x00002934:Go to previous line of paragraph	Back up to lines in paragraph - 1@ .. 999@",
+		]
+	];
+	hTabs[0] = document.getElementById("Numbers");
+	hTabs[1] = document.getElementById("Brailles");
+	hTabs[2] = document.getElementById("Operators");
+	hTabs[3] = document.getElementById("Effects");
+	var	hTab, hRow, hCell, pattern;
+	var	x, y, i, n, order, tmp;
+	var	order = 32290810;
+	//
+	hTab = hTabs[(order - order % 10) / 10 % 10];
+	for(y = -1; y < 8; ++ y) {
+		hRow = hTab.insertRow(y + 1);
+		for(x = -1; x < 8; ++ x) {
+			tmp = x < 0 ? y < 0 ? [0x28C0, "Using dots-pattern"] : [0x2880 + y, "Left dots only"] : y < 0 ? [0x2840 + x * 8, "Right dots only"] : [0x2800 + x * 8 + y, "Paste this six dots"];
+			hCell = hRow.insertCell(x + 1);
 			hCell.className = "operator";
 			hCell.width = "32px";
-			if(x < 8)
-				tmp = [y < 8 ? 0x2800 + x * 8 + y : y < 9 ? 0x2840 + x * 8 : 0x2880 + x, "Paste to scenario this LEDs atate" + (y < 8 ? "" : " with column skip")];
-			else
-				tmp = operators[(x - 8) * 10 + y].split(":");
 			hCell.title = tmp[1];
-			tmp = parseInt(tmp[0]);
-			if(tmp < 65535)
-				hCell.innerHTML = "&#" + tmp + ";";
-			else
-				hCell.innerHTML = "&#" + (tmp >> 16) + ";&#" + (tmp & 65535) + ";";
+			hCell.innerHTML = "&#" + tmp[0] + ";";
+			hCell.innerHTML = "<span style=position:absolute>&#" + tmp[0] + ";</span><span style=color:yellow>&#x283F;</span>";
 			hCell.title = hCell.title.replace(/[\t]+/g, "\r\n").replace(/@/g, hCell.textContent);
-			hCell.addEventListener("click",
-				function(e) {
-					if(e.target && e.target.nodeName == "TD") {
-						insertAtCursor(document.getElementById("Scenario"), e.target.textContent.replace(/\u23CE\r/g, "\r\n"));
-						document.getElementById("Scenario").focus();
-					}
-				}
-			);
+			hCell.addEventListener("click", insertOperator);
 		}
 	}
+	hTab.style.display = "none";
+	hTab.addEventListener("mouseover", holdingTable);
+	hTab.addEventListener("mouseout", hidingTable);
+	do {
+		order = (order - order % 100) / 100;
+		iTabs = (order - order % 10) / 10 % 10;
+		hTab = hTabs[iTabs];
+		pattern = layouts[iTabs];
+		if(iTabs > 0) {
+			hTab.addEventListener("mouseover", holdingTable);
+			hTab.addEventListener("mouseout", hidingTable);
+		}
+		for(y = 0; y < 9; ++ y) {
+			hRow = hTab.insertRow(y);
+			for(x = 0; x <= order % 10; ++ x) {
+				tmp = pattern.shift().split(":");
+				hCell = hRow.insertCell(x);
+				hCell.className = "operator";
+				hCell.width = "32px";
+				hCell.title = tmp[1];
+				tmp = parseInt(tmp[0]);
+				if(tmp < 65535) {
+					hCell.innerHTML = "&#" + tmp + ";";
+					hCell.addEventListener("click", insertOperator);
+				} else
+				if((tmp >> 16) < 9) {
+					hCell.className = "switch_" + (tmp >> 16);
+					hCell.innerHTML = "&#" + (tmp & 65535) + ";";
+					switch(tmp >> 16) {
+					case 1:	hCell.addEventListener("click", function() {
+						hTabs[iTabs].style.display = 'none'; iTabs = 1;
+						hTabs[iTabs].style.display = 'block';		});
+						break;
+					case 2:	hCell.addEventListener("click", function() {
+						hTabs[iTabs].style.display = 'none'; iTabs = 2;
+						hTabs[iTabs].style.display = 'block';		});
+						break;
+					case 3:	hCell.addEventListener("click", function() {
+						hTabs[iTabs].style.display = 'none'; iTabs = 3;
+						hTabs[iTabs].style.display = 'block';		});
+						break;
+					}
+				} else {
+					hCell.innerHTML = "&#" + (tmp >> 16) + ";&#" + (tmp & 65535) + ";";
+					hCell.addEventListener("click", insertOperator);
+				}
+				hCell.title = hCell.title.replace(/[\t]+/g, "\r\n").replace(/@/g, hCell.textContent);
+			}
+		}
+		hTab.style.display = "none";
+	} while(order >= 100);
+	iTabs = 0;
+	hTabs[iTabs].style.display = "block";
 	for(i = 0; i < 10; ++ i) {
 		LEDs.Measures[i] = {
 			cmd		:"",
@@ -909,8 +1200,24 @@ function main() {
 </script>
 </head>
 <body onload='main()'>
-<table><tr valign=top><td><textarea id='Scenario' rows=25 cols=80></textarea></td><td><pre id=leds></pre><table id='Operators'></table></td></tr></table>
+<table>
+<tr valign=top>
+<td colspan=2><pre id=leds></pre><a href='' id=Progress title='Click for share'>Progress - 0%</a></td></tr>
+<tr><td>
+<textarea id='Scenario' rows=25 cols=80>
+Glazeur-scenario
+&sect;1 &#x33B3;&#x21E5;	Paragraph #1
+&#x21E5;	
+
+&#x21E5;	Main paragraph
+Hello world!
+&#x21E5;	1000&#x33B3;100&#x3390;
+&#x21E5;	1524&#x2328;1&#x2328;
+&#x21E5;	&#x2399;&#x23F1;&#x239A;&#x23F1;</textarea></td>
+<td valign='top'><table id='Brailles'></table>
+<table id='Numbers'></table>
+<table id='Operators'></table>
+<table id='Effects'></table></td></tr></table>
 <button onclick='document.getElementById("Progress").href=url+"?script="+escape(document.getElementById("Scenario").value).replace(/%u/g, "%25u"); parse(LEDs, document.getElementById("Scenario").value)'>Compile Glazeur-scenario</button>
-<a href='' id=Progress>Progress - 0%</a>
 <p style=text-align:center><a href='http://github.com/Alikberov'>Visit me now</a><br />&copy;2017 Alikberov</p>
 </body>
