@@ -19,9 +19,13 @@ n⤴	| Go to row over in active paragraph				| ⤴…1⤴…99⤴		| Scenario/Pa
 n⤵	| Go to next row in active paragraph				| ⤵…1⤵…99⤵		| Scenario/Paragraph
 ➰	| «Play» for active paragraph row				| ➰			| Scenario
 n(…)	| Set looping for n-times					| 1(➰)…99(➰⤵)		| Scenario/Paragraph
+n♻	| Set row-looping for n-times					| 1♻…99♻		| Сценарий/Параграф
 §(…)	| Particulary run in active paragraph				| §(0⏱⅘⏱⤵)		| Scenario
 ⠿	| Immediate draw over the keyboards indicators			| 5(⠪⠝⏱⠿⠽⏱)		| Scenario/Paragraph
+∧/⊕/∨	| Logical operation prefix for indicators			| 10(⊕⠪⠝⠽⏱∧⠽⠝⠪⏱)		| Сценарий/Параграф
 ▲/▶/▼/◀	| Scroll the indication buffer in signed dirrection		| 9(◀⏱)			| Scenario/Paragraph
+⒑	| Definition of local label					| ⒈…⒛			| Scenario/Paragraph
+Ⓞ	| Define the «interactive label»² in scenario			| ①…⑳ / Ⓐ…Ⓩ		| Scenario
 i⃣	| Define the «interactive label»² in scenario			| 0⃣ …9⃣			| Scenario
 i⌨	| Select for basic (left-side) keyboard³			| 1⌨…9⌨			| Scenario/Paragraph
 n⌨	| Set up the logic order for keyboards³				| 12⌨…987654321⌨	| Scenario
@@ -67,9 +71,13 @@ n⤴	| Переход строками выше в активном парагр
 n⤵	| Переход строками ниже в активном параграфе			| ⤵…1⤵…99⤵		| Сценарий/Параграф
 ➰	| Запуск «проигрывания» эффекта активной строки параграфа	| ➰			| Сценарий
 n(…)	| Организация зацикливания n-раз				| 1(➰)…99(➰⤵)		| Сценарий/Параграф
+n♻	| Организация зацикливания строки n-раз				| 1♻…99♻		| Сценарий/Параграф
 §(…)	| Управление выбранным параграфом				| §(0⏱⅘⏱⤵)		| Сценарий
 ⠿	| Непосредственное управление индикаторами клавиатур		| 5(⠪⠝⏱⠿⠽⏱)		| Сценарий/Параграф
+∧/⊕/∨	| Префикс управления логической операцией к индикаторам		| 10(⊕⠪⠝⠽⏱∧⠽⠝⠪⏱)		| Сценарий/Параграф
 ▲/▶/▼/◀	| Скроллинг буфера индикации в соответствующем направлении	| 9(◀⏱)			| Сценарий/Параграф
+⒑	| Определение локальной метки					| ⒈…⒛			| Сценарий/Параграф
+Ⓞ	| Определение «интерактивной метки»² сценария			| ①…⑳ / Ⓐ…Ⓩ		| Сценарий
 i⃣	| Определение «интерактивной метки»² сценария			| 0⃣ …9⃣			| Сценарий
 i⌨	| Выборка базовой (первой слева) клавиатуры³			| 1⌨…9⌨			| Сценарий/Параграф
 n⌨	| Задание логического порядка клавиатур³			| 12⌨…987654321⌨	| Сценарий
